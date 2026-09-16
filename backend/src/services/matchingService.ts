@@ -253,6 +253,145 @@ export function calculateRoleScore(
     return 0;
 }
 
+export type JobSeniority =
+    | "INTERN"
+    | "FRESHER"
+    | "JUNIOR"
+    | "STANDARD"
+    | "SENIOR"
+    | "STAFF"
+    | "LEAD"
+    | "PRINCIPAL"
+    | "MANAGER";
+
+export function getJobSeniority(
+    jobTitle: string
+): JobSeniority {
+    const title = jobTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    // Most specific seniority levels first
+    if (
+        /\bintern(ship)?\b/.test(title)
+    ) {
+        return "INTERN";
+    }
+
+    if (
+        /\bfresher\b/.test(title) ||
+        /\bgraduate\b/.test(title) ||
+        /\bentry[\s-]?level\b/.test(title)
+    ) {
+        return "FRESHER";
+    }
+
+    if (
+        /\bprincipal\b/.test(title)
+    ) {
+        return "PRINCIPAL";
+    }
+
+    if (
+        /\bstaff\b/.test(title)
+    ) {
+        return "STAFF";
+    }
+
+    if (
+        /\blead\b/.test(title)
+    ) {
+        return "LEAD";
+    }
+
+    if (
+        /\bmanager\b/.test(title) ||
+        /\bmanagement\b/.test(title)
+    ) {
+        return "MANAGER";
+    }
+
+    if (
+        /\bsenior\b/.test(title) ||
+        /\bsr\b/.test(title)
+    ) {
+        return "SENIOR";
+    }
+
+   if (
+    /\bjunior\b/.test(title) ||
+    /\bjr\b/.test(title)
+) {
+    return "JUNIOR";
+}
+
+if (/\bassociate\b/.test(title)) {
+    const technicalKeywords = [
+        "software",
+        "developer",
+        "engineer",
+        "sde",
+        "frontend",
+        "front end",
+        "backend",
+        "back end",
+        "full stack",
+        "data analyst",
+        "data engineer",
+        "qa engineer",
+        "test engineer",
+    ];
+
+    const isTechnicalAssociate =
+        technicalKeywords.some((keyword) =>
+            title.includes(keyword)
+        );
+
+    return isTechnicalAssociate
+        ? "JUNIOR"
+        : "STANDARD";
+}
+
+    return "STANDARD";
+}
+export function calculateSeniorityScore(
+    seniority: JobSeniority
+): number {
+    switch (seniority) {
+        case "INTERN":
+            return 100;
+
+        case "FRESHER":
+            return 100;
+
+        case "JUNIOR":
+            return 90;
+
+        case "STANDARD":
+            return 80;
+
+        case "SENIOR":
+            return 30;
+
+        case "STAFF":
+            return 10;
+
+        case "LEAD":
+            return 10;
+
+        case "PRINCIPAL":
+            return 5;
+
+        case "MANAGER":
+            return 5;
+
+        default:
+            return 0;
+    }
+}
+
 export function calculateEducationScore(
     userDegree: string,
     jobDescription?: string
@@ -300,26 +439,93 @@ export function calculateEducationScore(
 
     return userHasBachelor ? 100 : 0;
 }
+export function generateMatchReason(
+    skillScore: number,
+    roleScore: number,
+    experienceScore: number,
+    seniorityScore: number,
+    locationScore: number,
+    educationScore: number
+): string {
+    const reasons: string[] = [];
+
+    // Skills
+    if (skillScore >= 80) {
+        reasons.push("Strong skill match");
+    } else if (skillScore >= 50) {
+        reasons.push("Moderate skill match");
+    } else if (skillScore > 0) {
+        reasons.push("Limited skill match");
+    } else {
+        reasons.push("No matching skills");
+    }
+
+    // Role
+    if (roleScore === 100) {
+        reasons.push("Preferred role matches");
+    } else if (roleScore === 50) {
+        reasons.push("Role is partially related to preferences");
+    }
+
+    // Experience
+    if (experienceScore === 100) {
+        reasons.push("Experience requirement satisfied");
+    } else if (experienceScore > 0) {
+        reasons.push("Partially meets experience requirement");
+    } else {
+        reasons.push("Does not meet minimum experience");
+    }
+
+    // Seniority
+    if (seniorityScore >= 90) {
+        reasons.push("Entry-level position");
+    } else if (seniorityScore >= 70) {
+        reasons.push("Standard-level position");
+    } else if (seniorityScore >= 30) {
+        reasons.push("Senior-level position");
+    } else {
+        reasons.push("Highly senior position");
+    }
+
+    // Location
+    if (locationScore === 100) {
+        reasons.push("Preferred location matches");
+    } else if (locationScore === 50) {
+        reasons.push("Location information is unclear");
+    } else {
+        reasons.push("Location does not match preferences");
+    }
+
+    // Education
+    if (educationScore === 100) {
+        reasons.push("Education requirement satisfied");
+    } else {
+        reasons.push("Education requirement not satisfied");
+    }
+
+    return reasons.join(". ") + ".";
+}
 
 export function calculateOverallScore(
     skillScore: number,
     roleScore: number,
     experienceScore: number,
+    seniorityScore: number,
     locationScore: number,
     educationScore: number
 ): number {
     const overallScore =
-        skillScore * 0.40 +
+        skillScore * 0.35 +
         roleScore * 0.20 +
         experienceScore * 0.20 +
-        locationScore * 0.10 +
-        educationScore * 0.10;
+        seniorityScore * 0.15 +
+        locationScore * 0.05 +
+        educationScore * 0.05;
 
     return Number(
         overallScore.toFixed(2)
     );
 }
-
 export async function getUserProfileForMatching(
     userProfileId: number
 ) {
@@ -389,7 +595,10 @@ export async function calculateJobMatch(
                 : undefined
         );
 
-    
+    const seniorityScore =
+        calculateSeniorityScore(
+            getJobSeniority(job.title)
+        );
 
     const locationScore =
         calculateLocationScore(
@@ -408,11 +617,22 @@ export async function calculateJobMatch(
             job.description
         );
 
+        const reason =
+    generateMatchReason(
+        skillScore,
+        roleScore,
+        experienceScore,
+        seniorityScore,
+        locationScore,
+        educationScore
+    );
+
     const overallScore =
     calculateOverallScore(
         skillScore,
         roleScore,
         experienceScore,
+        seniorityScore,
         locationScore,
         educationScore
     );
@@ -425,7 +645,9 @@ export async function calculateJobMatch(
     experienceScore,
     locationScore,
     educationScore,
+    seniorityScore,
     overallScore,
+    reason,
 };
 }
 
@@ -437,6 +659,7 @@ export async function saveJobMatch(
     experienceScore: number,
     locationScore: number,
     educationScore: number,
+    seniorityScore: number,
     overallScore: number,
     reason?: string
 ): Promise<void> {
@@ -450,9 +673,10 @@ export async function saveJobMatch(
         experience_score,
         location_score,
         education_score,
+        seniority_score,
         reason
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (job_id, user_profile_id)
     DO UPDATE SET
         score = EXCLUDED.score,
@@ -461,6 +685,7 @@ export async function saveJobMatch(
         experience_score = EXCLUDED.experience_score,
         location_score = EXCLUDED.location_score,
         education_score = EXCLUDED.education_score,
+        seniority_score = EXCLUDED.seniority_score,
         reason = EXCLUDED.reason`,
     [
         jobId,
@@ -471,6 +696,7 @@ export async function saveJobMatch(
         experienceScore,
         locationScore,
         educationScore,
+        seniorityScore,
         reason,
     ]
 );
@@ -502,7 +728,9 @@ export async function generateMatchesForUser(
     match.experienceScore,
     match.locationScore,
     match.educationScore,
-    match.overallScore
+    match.seniorityScore,
+    match.overallScore,
+    match.reason
 );
 
         processedJobs++;
