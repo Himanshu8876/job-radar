@@ -32,6 +32,65 @@ interface GreenhouseResponse {
     };
 }
 
+function extractCountry(location?: string): string | undefined {
+    if (!location) {
+        return undefined;
+    }
+
+    const parts = location
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+    if (parts.length === 0) {
+        return undefined;
+    }
+
+    const lastPart = parts[parts.length - 1];
+
+    if (lastPart.toLowerCase() === "remote") {
+        return parts.length > 1
+            ? parts[parts.length - 2]
+            : undefined;
+    }
+
+    return lastPart;
+}
+
+function extractExperience(
+    description?: string
+): {
+    min?: number;
+    max?: number;
+} {
+    if (!description) {
+        return {};
+    }
+
+    const rangeMatch = description.match(
+        /(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*years?/i
+    );
+
+    if (rangeMatch) {
+        return {
+            min: Number(rangeMatch[1]),
+            max: Number(rangeMatch[2]),
+        };
+    }
+
+    const plusMatch = description.match(
+        /(\d+(?:\.\d+)?)\s*\+\s*years?/i
+    );
+
+    if (plusMatch) {
+        return {
+            min: Number(plusMatch[1]),
+        };
+    }
+
+    return {};
+}
+
 class GreenhouseCollector implements JobCollector {
     private boardToken: string;
 
@@ -57,6 +116,8 @@ class GreenhouseCollector implements JobCollector {
         const data = (await response.json()) as GreenhouseResponse;
 
         const normalizedJobs: NormalizedJob[] = data.jobs.map((job) => {
+            const experience = extractExperience(job.content);
+
             return {
                 source: "greenhouse",
 
@@ -68,13 +129,13 @@ class GreenhouseCollector implements JobCollector {
 
                 location: job.location?.name,
 
-                country: undefined,
+                country: extractCountry(job.location?.name),
 
                 employmentType: undefined,
 
-                experienceMin: undefined,
+                experienceMin: experience.min,
 
-                experienceMax: undefined,
+                experienceMax: experience.max,
 
                 postedAt: undefined,
 
