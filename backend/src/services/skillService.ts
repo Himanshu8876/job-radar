@@ -287,11 +287,6 @@ export async function extractJobSkills(
         niceToHaveTexts.join(" ");
 
 
-        console.log("\nREQUIRED TEXT:");
-console.log(requiredText);
-
-console.log("\nNICE TO HAVE TEXT:");
-console.log(niceToHaveText);
     /*
      * ------------------------------------------------
      * FIND SKILLS
