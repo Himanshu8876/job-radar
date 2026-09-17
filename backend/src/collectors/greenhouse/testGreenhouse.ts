@@ -1,4 +1,4 @@
-import GreenhouseCollector = require("./greenhouseCollector");
+import GreenhouseCollector from "./greenhouseCollector";
 
 async function test() {
     const collector = new GreenhouseCollector("6sense");

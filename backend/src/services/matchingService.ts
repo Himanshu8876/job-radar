@@ -62,10 +62,17 @@ export async function calculateSkillScore(
         result.rows[0].matched_nice_to_have_skills
     );
 
-    const requiredScore =
-        totalRequiredSkills === 0
-            ? 100
-            : (matchedRequiredSkills / totalRequiredSkills) * 100;
+    if (
+    totalRequiredSkills === 0 &&
+    totalNiceToHaveSkills === 0
+) {
+    return 0;
+}
+
+const requiredScore =
+    totalRequiredSkills === 0
+        ? 100
+        : (matchedRequiredSkills / totalRequiredSkills) * 100;
 
     const niceToHaveScore =
         totalNiceToHaveSkills === 0
@@ -179,28 +186,43 @@ export function calculateRoleScore(
         ],
 
         "software engineer": [
-            "software engineer",
-            "software development engineer",
-            "sde",
-        ],
+    "software engineer",
+    "software development engineer",
+    "sde",
+    "software developer",
+    "machine learning engineer",
+],
 
         "full stack developer": [
-            "full stack developer",
-            "full stack engineer",
-            "fullstack developer",
-            "fullstack engineer",
-        ],
-
-        "backend developer": [
-            "backend developer",
-            "backend engineer",
-            "back end developer",
-            "back end engineer",
-        ],
+    "full stack developer",
+    "full stack engineer",
+    "fullstack developer",
+    "fullstack engineer",
+    "full-stack developer",
+    "full-stack engineer",
+],
+"frontend developer": [
+    "frontend developer",
+    "frontend engineer",
+    "front end developer",
+    "front end engineer",
+    "front-end developer",
+    "front-end engineer",
+],
+"backend developer": [
+    "backend developer",
+    "backend engineer",
+    "back end developer",
+    "back end engineer",
+    "back-end developer",
+    "back-end engineer",
+    "software engineer backend",
+],
 
         "data analyst": [
             "data analyst",
         ],
+        
     };
 
     for (const role of roles) {
@@ -214,43 +236,7 @@ export function calculateRoleScore(
         }
     }
 
-    // Check for broadly related keywords
-    const relatedGroups = [
-        {
-            keywords: [
-                "software",
-                "developer",
-                "engineer",
-                "sde",
-            ],
-        },
-        {
-            keywords: [
-                "data",
-                "analyst",
-            ],
-        },
-    ];
-
-    for (const role of roles) {
-        const roleWords = role
-            .split(/\s+/)
-            .filter(Boolean);
-
-        const matchedWords =
-            roleWords.filter((word) =>
-                normalizedJobTitle.includes(word)
-            );
-
-        if (
-            matchedWords.length > 0 &&
-            matchedWords.length < roleWords.length
-        ) {
-            return 50;
-        }
-    }
-
-    return 0;
+return 0;
 }
 
 export type JobSeniority =
@@ -262,6 +248,7 @@ export type JobSeniority =
     | "STAFF"
     | "LEAD"
     | "PRINCIPAL"
+    | "EXECUTIVE"
     | "MANAGER";
 
 export function getJobSeniority(
@@ -287,6 +274,13 @@ export function getJobSeniority(
     ) {
         return "FRESHER";
     }
+
+    if (
+    /\bvp\b/.test(title) ||
+    /\bvice president\b/.test(title)
+) {
+    return "EXECUTIVE";
+}
 
     if (
         /\bprincipal\b/.test(title)
@@ -356,6 +350,7 @@ if (/\bassociate\b/.test(title)) {
 
     return "STANDARD";
 }
+
 export function calculateSeniorityScore(
     seniority: JobSeniority
 ): number {
@@ -386,6 +381,9 @@ export function calculateSeniorityScore(
 
         case "MANAGER":
             return 5;
+
+        case "EXECUTIVE":
+            return 0;
 
         default:
             return 0;

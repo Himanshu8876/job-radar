@@ -1,36 +1,48 @@
 import { calculateExperienceScore } from "./matchingService";
 
-console.log(
-    "No requirement:",
-    calculateExperienceScore(0)
-);
+const userExperience = 2;
 
-console.log(
-    "0 years, requires 2:",
-    calculateExperienceScore(0, 2)
-);
+const testCases = [
+    {
+        name: "No requirement",
+        min: undefined,
+        max: undefined,
+    },
+    {
+        name: "0-1 years",
+        min: 0,
+        max: 1,
+    },
+    {
+        name: "0-2 years",
+        min: 0,
+        max: 2,
+    },
+    {
+        name: "1+ years",
+        min: 1,
+        max: undefined,
+    },
+    {
+        name: "2-4 years",
+        min: 2,
+        max: 4,
+    },
+    {
+        name: "5+ years",
+        min: 5,
+        max: undefined,
+    },
+];
 
-console.log(
-    "1 year, requires 2:",
-    calculateExperienceScore(1, 2)
-);
+for (const testCase of testCases) {
+    const score = calculateExperienceScore(
+        userExperience,
+        testCase.min,
+        testCase.max
+    );
 
-console.log(
-    "2 years, requires 2:",
-    calculateExperienceScore(2, 2)
-);
-
-console.log(
-    "3 years, requires 2:",
-    calculateExperienceScore(3, 2)
-);
-
-console.log(
-    "0 years, requires 2-6:",
-    calculateExperienceScore(0, 2, 6)
-);
-
-console.log(
-    "2 years, requires 2-6:",
-    calculateExperienceScore(2, 2, 6)
-);
+    console.log(
+        `${testCase.name} -> ${score}`
+    );
+}

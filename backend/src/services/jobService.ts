@@ -116,3 +116,22 @@ export async function saveJob(
         isNew: true,
     };
 }
+
+export async function markMissingJobsAsClosed(
+    companyId: number,
+    collectionStartedAt: Date
+): Promise<number> {
+    const result = await pool.query(
+        `UPDATE jobs
+         SET closed_at = CURRENT_TIMESTAMP
+         WHERE company_id = $1
+         AND last_seen_at < $2
+         AND closed_at IS NULL`,
+        [
+            companyId,
+            collectionStartedAt,
+        ]
+    );
+
+    return result.rowCount ?? 0;
+}
