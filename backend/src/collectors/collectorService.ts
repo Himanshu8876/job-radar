@@ -18,25 +18,39 @@ export async function runAllCollectors(): Promise<void> {
             `\nStarting collector for: ${company.name}`
         );
 
-        try {
-            const collector = createCollector(
-                company.ats_type,
-                company.ats_identifier
-            );
+       try {
+    const collector = createCollector(
+        company.ats_type,
+        company.ats_identifier
+    );
 
-            await runCollector(
-                company.id,
-                collector
-            );
+    await runCollector(
+        company.id,
+        collector
+    );
 
-            console.log(
-                `Completed collector for: ${company.name}`
-            );
-        } catch (error) {
-            console.error(
-                `Failed collector for: ${company.name}`,
-                error
-            );
-        }
+    console.log(
+        `Completed collector for: ${company.name}`
+    );
+} catch (error) {
+    if (
+        error instanceof Error &&
+        error.message.startsWith(
+            "Unsupported ATS type:"
+        )
+    ) {
+        console.log(
+            `Skipping ${company.name}: ` +
+            `unsupported ATS type ${company.ats_type}`
+        );
+
+        continue;
+    }
+
+    console.error(
+        `Failed collector for: ${company.name}`,
+        error
+    );
+}
     }
 }

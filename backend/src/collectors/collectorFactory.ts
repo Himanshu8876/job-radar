@@ -1,5 +1,6 @@
 import { JobCollector } from "./jobCollector";
 import GreenhouseCollector from "./greenhouse/greenhouseCollector";
+import LeverCollector from "./lever/leverCollector";
 
 export function createCollector(
     atsType: string,
@@ -8,6 +9,11 @@ export function createCollector(
     switch (atsType.toLowerCase()) {
         case "greenhouse":
             return new GreenhouseCollector(
+                atsIdentifier
+            );
+
+            case "lever":
+            return new LeverCollector(
                 atsIdentifier
             );
 
