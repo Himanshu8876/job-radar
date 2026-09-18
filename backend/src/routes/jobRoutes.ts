@@ -1,5 +1,6 @@
 import express = require("express");
 import pool from "../config/db";
+import { getMatchesForUser } from "../services/matchingService";
 
 const router = express.Router();
 
@@ -83,6 +84,25 @@ router.post("/", async (req, res) => {
             message: "Failed to create job",
         });
     }
+});
+
+router.get("/matches/:userId", async (req, res) => {
+    try {
+        const userId = Number(req.params.userId);
+
+        const matches = await getMatchesForUser(userId);
+
+        res.json(matches);
+    }  catch (error) {
+    console.error("Error fetching matches:", error);
+
+    res.status(500).json({
+        message: "Failed to fetch matches",
+        error: error instanceof Error
+            ? error.message
+            : String(error),
+    });
+}
 });
 
 export = router;

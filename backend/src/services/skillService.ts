@@ -54,6 +54,12 @@ export function cleanJobDescription(
     /<p>\s*(?:<strong>|<b>)?\s*qualifications\s*(?:<\/strong>|<\/b>)?\s*<\/p>/gi,
     " QUALIFICATIONS SECTION "
 );
+
+// Preserve standalone Qualifications headings in plain-text descriptions
+cleaned = cleaned.replace(
+    /(?:^|\n)\s*qualifications\s*(?=\n|$)/gi,
+    " QUALIFICATIONS_SECTION "
+);
     // Remove remaining HTML tags
     cleaned = cleaned.replace(
         /<[^>]*>/g,
@@ -103,8 +109,8 @@ export async function extractJobSkills(
      * to "qualifications_section" by cleanJobDescription().
      */
     const requiredSectionPattern =
-        /\b(?:key skills\s*(?:&|and)\s*experience|key skills and experience|required qualifications|basic qualifications|minimum qualifications|qualifications section|what you(?:'|’)ll need|what we(?:'|’)re looking for|what you(?:'|’)ll bring)\b/gi;
-
+    /\b(?:requirements|key skills\s*(?:&|and)\s*experience|key skills and experience|required qualifications|basic qualifications|minimum qualifications|required proficiency\s*(?:&|and)\s*qualifications|qualifications[_\s]+section|what do you(?:'|’)ll need|what we(?:'|’)re looking for|what you(?:'|’)ll bring|what you(?:'|’)ll bring to the role)\b/gi;
+    
     const preferredSectionPattern =
     /\b(?:nice\s*[-]?\s*to\s*have|preferred\s+qualifications?|preferred\s+skills?|preferred\s+experience|bonus\s+(?:skills?|qualifications?)|good\s+to\s+have)\b/gi;
 
@@ -286,12 +292,32 @@ export async function extractJobSkills(
     const niceToHaveText =
         niceToHaveTexts.join(" ");
 
+    
+
 
     /*
      * ------------------------------------------------
      * FIND SKILLS
      * ------------------------------------------------
      */
+
+   const removeOptionalSkillText = (text: string): string => {
+    return text
+        .split(/(?<=[.!?])\s+/)
+        .filter((sentence) => {
+            const lowerSentence = sentence.toLowerCase();
+
+            return !(
+                lowerSentence.includes("plus") &&
+                (
+                    lowerSentence.includes("not mandatory") ||
+                    lowerSentence.includes("not required") ||
+                    lowerSentence.includes("optional")
+                )
+            );
+        })
+        .join(" ");
+};
 
     const findSkills = (
         text: string
@@ -315,8 +341,15 @@ export async function extractJobSkills(
                         .toLowerCase();
 
                 if (!normalizedSkill) {
-                    return false;
-                }
+    return false;
+}
+
+if (normalizedSkill === "sql") {
+    const sqlPattern =
+        /(?<!cloud\s)\bsql\b/i;
+
+    return sqlPattern.test(text);
+}
 
                 const escapedSkill =
                     normalizedSkill.replace(
@@ -344,12 +377,77 @@ export async function extractJobSkills(
         });
     };
 
-    const requiredSkills =
-        findSkills(requiredText);
+    const cleanedRequiredText =
+    removeOptionalSkillText(requiredText);
 
-    const niceToHaveSkills =
-        findSkills(niceToHaveText);
+const requiredSkills =
+    findSkills(cleanedRequiredText);
 
+let niceToHaveSkills =
+    findSkills(niceToHaveText);
+
+const requirementsIndex = normalizedDescription.search(
+    requiredSectionPattern
+);
+
+if (requirementsIndex !== -1) {
+    const beforeRequirements =
+        normalizedDescription.substring(0, requirementsIndex);
+
+    const stackMatches = [
+        ...beforeRequirements.matchAll(
+            /[^.]*\b(?:stack|tech stack|technology stack)\b[^.]*/gi
+        )
+    ];
+
+    const stackSentence =
+        stackMatches.length > 0
+            ? stackMatches[stackMatches.length - 1][0]
+            : "";
+
+    const aboveMentionedStack =
+        /above-mentioned stack[^.]*\b(?:helpful|preferred|plus)\b[^.]*\b(?:not necessary|not mandatory|not required)\b/i
+            .test(normalizedDescription);
+
+    if (aboveMentionedStack && stackSentence) {
+        const stackSkills = findSkills(stackSentence);
+
+        niceToHaveSkills = [
+            ...niceToHaveSkills,
+            ...stackSkills
+        ];
+    }
+}
+
+const aboveMentionedStackMatch =
+    normalizedDescription.match(
+        /above-mentioned stack[^.]*\b(?:helpful|preferred|plus)\b[^.]*\b(?:not necessary|not mandatory|not required)\b[^.]*/i
+    );
+
+if (aboveMentionedStackMatch) {
+    const stackPosition =
+        aboveMentionedStackMatch.index ?? -1;
+
+    if (stackPosition !== -1) {
+        const textBeforeStack =
+            normalizedDescription.substring(
+                0,
+                stackPosition
+            );
+
+        const sentences =
+            textBeforeStack.split(/[.!?]/);
+
+        const previousSentence =
+            sentences[sentences.length - 1];
+
+        const stackSkills =
+            findSkills(previousSentence);
+
+        niceToHaveSkills =
+            [...niceToHaveSkills, ...stackSkills];
+    }
+}
     /*
      * Required skills always have priority.
      */

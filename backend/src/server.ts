@@ -8,6 +8,8 @@ import pool from "./config/db";
 import companyRoutes = require("./routes/companyRoutes");
 import jobRoutes = require("./routes/jobRoutes");
 import profileRoutes = require("./routes/profileRoutes");
+import { runAllCollectors } from "./collectors/collectorService";
+import { generateMatchesForUser } from "./services/matchingService";
 
 const app = express();
 app.use(express.json());
@@ -35,6 +37,44 @@ app.get("/db-test", async (req, res) => {
 
         res.status(500).json({
             message: "Database connection failed",
+        });
+    }
+});
+
+app.post("/collect", async (req, res) => {
+    try {
+        const summary = await runAllCollectors();
+
+        await generateMatchesForUser(1);
+
+res.json({
+    message: "Collectors completed successfully",
+    summary
+});
+    } catch (error) {
+        console.error("Collector error:", error);
+
+        res.status(500).json({
+            message: "Collector failed",
+        });
+    }
+});
+
+app.post("/profiles/:userId/generate-matches", async (req, res) => {
+    try {
+        const userId = Number(req.params.userId);
+
+        const result = await generateMatchesForUser(userId);
+
+        res.json({
+            message: "Matches generated successfully",
+            result
+        });
+    } catch (error) {
+        console.error("Match generation error:", error);
+
+        res.status(500).json({
+            message: "Failed to generate matches"
         });
     }
 });

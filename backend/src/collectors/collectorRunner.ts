@@ -7,7 +7,12 @@ import {
 export async function runCollector(
     companyId: number,
     collector: JobCollector
-): Promise<void> {
+): Promise<{
+    totalJobs: number;
+    newJobs: number;
+    updatedJobs: number;
+    closedJobs: number;
+}> {
     const collectionStartedAt = new Date();
 
     const jobs = await collector.collectJobs();
@@ -49,4 +54,11 @@ export async function runCollector(
     console.log(
         `Jobs marked as closed: ${closedJobs}`
     );
+
+    return {
+        totalJobs: jobs.length,
+        newJobs,
+        updatedJobs,
+        closedJobs
+    };
 }

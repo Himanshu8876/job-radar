@@ -1,6 +1,7 @@
 import { JobCollector } from "./jobCollector";
 import GreenhouseCollector from "./greenhouse/greenhouseCollector";
 import LeverCollector from "./lever/leverCollector";
+import AshbyCollector from "./ashbyCollector";
 
 export function createCollector(
     atsType: string,
@@ -12,8 +13,13 @@ export function createCollector(
                 atsIdentifier
             );
 
-            case "lever":
+        case "lever":
             return new LeverCollector(
+                atsIdentifier
+            );
+
+        case "ashby":
+            return new AshbyCollector(
                 atsIdentifier
             );
 

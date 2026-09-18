@@ -4,7 +4,14 @@ import { JobCollector } from "../jobCollector";
 interface LeverJob {
     id: string;
     text: string;
+
+    description?: string;
     descriptionPlain?: string;
+
+    lists?: {
+        text: string;
+        content: string;
+    }[];
 
     categories?: {
         commitment?: string;
@@ -65,8 +72,15 @@ export default class LeverCollector
 
             title: job.text,
 
-            description:
-                job.descriptionPlain || "",
+            description: [
+                job.descriptionPlain ||
+                job.description ||
+                "",
+
+                ...(job.lists || []).map((list) => {
+                    return `${list.text}\n${list.content}`;
+                })
+            ].join("\n\n"),
 
             location:
                 job.categories?.location,
@@ -76,6 +90,9 @@ export default class LeverCollector
 
             employmentType:
                 job.categories?.commitment,
+
+            workplaceType:
+                job.workplaceType,
 
             postedAt:
                 job.createdAt

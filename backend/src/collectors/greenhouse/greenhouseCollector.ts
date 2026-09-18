@@ -46,15 +46,118 @@ function extractCountry(location?: string): string | undefined {
         return undefined;
     }
 
-    const lastPart = parts[parts.length - 1];
+    let country = parts[parts.length - 1];
 
-    if (lastPart.toLowerCase() === "remote") {
-        return parts.length > 1
-            ? parts[parts.length - 2]
-            : undefined;
+    if (country.toLowerCase() === "remote") {
+        country =
+            parts.length > 1
+                ? parts[parts.length - 2]
+                : "";
     }
 
-    return lastPart;
+    const normalizedCountry =
+        country.toLowerCase().trim();
+
+    if (normalizedCountry === "india") {
+        return "IN";
+    }
+
+    if (
+        normalizedCountry === "united states" ||
+        normalizedCountry === "usa" ||
+        normalizedCountry === "us"
+    ) {
+        return "US";
+    }
+
+    if (normalizedCountry === "canada") {
+        return "CA";
+    }
+
+    if (
+        normalizedCountry === "united kingdom" ||
+        normalizedCountry === "uk"
+    ) {
+        return "GB";
+    }
+
+    return country;
+}
+
+function normalizeEmploymentType(
+    title?: string,
+    description?: string
+): string | undefined {
+    const normalizedTitle =
+        (title || "").toLowerCase();
+
+    // Title is the strongest signal
+    if (
+        normalizedTitle.includes("intern") ||
+        normalizedTitle.includes("internship")
+    ) {
+        return "Internship";
+    }
+
+    if (
+        normalizedTitle.includes("part-time") ||
+        normalizedTitle.includes("part time")
+    ) {
+        return "Part-time";
+    }
+
+    if (
+        normalizedTitle.includes("full-time") ||
+        normalizedTitle.includes("full time")
+    ) {
+        return "Full-time";
+    }
+
+    // Use description only when title does not specify it
+    const normalizedDescription =
+        (description || "").toLowerCase();
+
+    if (
+        normalizedDescription.includes("part-time") ||
+        normalizedDescription.includes("part time")
+    ) {
+        return "Part-time";
+    }
+
+    if (
+        normalizedDescription.includes("full-time") ||
+        normalizedDescription.includes("full time")
+    ) {
+        return "Full-time";
+    }
+
+    return undefined;
+}
+
+function normalizeWorkplaceType(
+    location?: string,
+    description?: string
+): string | undefined {
+    const text =
+        `${location || ""} ${description || ""}`.toLowerCase();
+
+    if (text.includes("hybrid")) {
+        return "Hybrid";
+    }
+
+    if (text.includes("remote")) {
+        return "Remote";
+    }
+
+    if (
+        text.includes("on-site") ||
+        text.includes("onsite") ||
+        text.includes("on site")
+    ) {
+        return "On-site";
+    }
+
+    return undefined;
 }
 
 export function extractExperience(
@@ -68,15 +171,15 @@ export function extractExperience(
     }
 
     const fresherMatch = description.match(
-    /\b(?:fresh\s+graduates?|new\s+graduates?|recent\s+graduates?)\b/i
-);
+        /\b(?:fresh\s+graduates?|new\s+graduates?|recent\s+graduates?)\b/i
+    );
 
-if (fresherMatch) {
-    return {
-        min: 0,
-        max: 0,
-    };
-}
+    if (fresherMatch) {
+        return {
+            min: 0,
+            max: 0,
+        };
+    }
 
     const rangeMatch = description.match(
         /(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*years?/i
@@ -90,37 +193,37 @@ if (fresherMatch) {
     }
 
     const plusMatch = description.match(
-    /(\d+(?:\.\d+)?)\s*\+\s*years?/i
-);
+        /(\d+(?:\.\d+)?)\s*\+\s*years?/i
+    );
 
-if (plusMatch) {
-    return {
-        min: Number(plusMatch[1]),
-    };
-}
+    if (plusMatch) {
+        return {
+            min: Number(plusMatch[1]),
+        };
+    }
 
-const atLeastMatch = description.match(
-    /at\s+least\s+(\d+(?:\.\d+)?)\s*years?/i
-);
+    const atLeastMatch = description.match(
+        /at\s+least\s+(\d+(?:\.\d+)?)\s*years?/i
+    );
 
-if (atLeastMatch) {
-    return {
-        min: Number(atLeastMatch[1]),
-    };
-}
+    if (atLeastMatch) {
+        return {
+            min: Number(atLeastMatch[1]),
+        };
+    }
 
-const singleMatch = description.match(
-    /(?<!at least\s)(\d+(?:\.\d+)?)\s*years?(?:\s+of)?\s+experience/i
-);
+    const singleMatch = description.match(
+        /(?<!at least\s)(\d+(?:\.\d+)?)\s*years?(?:\s+of)?\s+experience/i
+    );
 
-if (singleMatch) {
-    return {
-        min: Number(singleMatch[1]),
-        max: Number(singleMatch[1]),
-    };
-}
+    if (singleMatch) {
+        return {
+            min: Number(singleMatch[1]),
+            max: Number(singleMatch[1]),
+        };
+    }
 
-return {};
+    return {};
 }
 
 class GreenhouseCollector implements JobCollector {
@@ -145,39 +248,59 @@ class GreenhouseCollector implements JobCollector {
             );
         }
 
-        const data = (await response.json()) as GreenhouseResponse;
+        const data =
+            (await response.json()) as GreenhouseResponse;
 
-        const normalizedJobs: NormalizedJob[] = data.jobs.map((job) => {
-            const experience = extractExperience(job.content);
+        const normalizedJobs: NormalizedJob[] =
+            data.jobs.map((job) => {
+                const experience =
+                    extractExperience(job.content);
 
-            return {
-                source: "greenhouse",
+                return {
+                    source: "greenhouse",
 
-                sourceJobId: String(job.id),
+                    sourceJobId: String(job.id),
 
-                title: job.title,
+                    title: job.title,
 
-                description: job.content || "",
+                    description: job.content || "",
 
-                location: job.location?.name,
+                    location: job.location?.name,
 
-                country: extractCountry(job.location?.name),
+                    country:
+                        extractCountry(
+                            job.location?.name
+                        ),
 
-                employmentType: undefined,
+                    employmentType:
+                        normalizeEmploymentType(
+                            job.title,
+                            job.content
+                        ),
 
-                experienceMin: experience.min,
+                    workplaceType:
+                        normalizeWorkplaceType(
+                            job.location?.name,
+                            job.content
+                        ),
 
-                experienceMax: experience.max,
+                    experienceMin:
+                        experience.min,
 
-                postedAt: undefined,
+                    experienceMax:
+                        experience.max,
 
-                updatedAt: job.updated_at
-                    ? new Date(job.updated_at)
-                    : undefined,
+                    postedAt: undefined,
 
-                applicationUrl: job.absolute_url,
-            };
-        });
+                    updatedAt:
+                        job.updated_at
+                            ? new Date(job.updated_at)
+                            : undefined,
+
+                    applicationUrl:
+                        job.absolute_url,
+                };
+            });
 
         return normalizedJobs;
     }

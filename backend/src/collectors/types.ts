@@ -17,4 +17,6 @@ export interface NormalizedJob {
     updatedAt?: Date;
 
     applicationUrl: string;
+
+    workplaceType?: string;
 }

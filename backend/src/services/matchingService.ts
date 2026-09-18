@@ -127,33 +127,117 @@ export function calculateExperienceScore(
 
 export function calculateLocationScore(
     preferredLocations: string,
-    jobLocation?: string
+    jobLocation?: string,
+    country?: string
 ): number {
-    // No job location
     if (!jobLocation) {
         return 50;
     }
 
     const normalizedJobLocation =
-        jobLocation.toLowerCase();
+        jobLocation.toLowerCase().trim();
+
+    const normalizedCountry =
+        country?.toLowerCase().trim();
 
     const locations = preferredLocations
         .split(",")
-        .map((location) =>
-            location.trim().toLowerCase()
-        )
+        .map((location) => normalizeCity(location))
         .filter(Boolean);
 
-    // Remote jobs
-    if (normalizedJobLocation.includes("remote")) {
+    // International remote jobs
+    if (
+        normalizedJobLocation.includes("remote") &&
+        normalizedCountry !== "in" &&
+        !normalizedJobLocation.includes("india")
+    ) {
+        return 0;
+    }
+
+    // India remote jobs
+    if (
+        normalizedJobLocation.includes("remote") &&
+        (
+            normalizedCountry === "in" ||
+            normalizedJobLocation.includes("india")
+        )
+    ) {
         return 100;
     }
 
-    const hasMatch = locations.some((location) =>
-        normalizedJobLocation.includes(location)
+    // Bangalore / Bengaluru
+    if (
+        locations.includes("bangalore") &&
+        (
+            normalizedJobLocation.includes("bangalore") ||
+            normalizedJobLocation.includes("bengaluru")
+        )
+    ) {
+        return 100;
+    }
+
+    // Delhi NCR
+    if (
+        locations.includes("delhi ncr") &&
+        (
+            normalizedJobLocation.includes("delhi") ||
+            normalizedJobLocation.includes("gurgaon") ||
+            normalizedJobLocation.includes("gurugram") ||
+            normalizedJobLocation.includes("noida")
+        )
+    ) {
+        return 100;
+    }
+
+    // Other preferred cities
+    const hasMatch = locations.some(
+        (location) =>
+            normalizedJobLocation.includes(location)
     );
 
-    return hasMatch ? 100 : 0;
+    if (hasMatch) {
+        return 100;
+    }
+
+    // India but different city / unspecified city
+    if (
+        normalizedCountry === "in" ||
+        normalizedJobLocation.includes("india")
+    ) {
+        return 50;
+    }
+
+    // International non-remote
+    return 0;
+}
+function normalizeCity(
+    location: string
+): string {
+    const normalized =
+        location
+            .toLowerCase()
+            .trim();
+
+    const cityAliases: Record<string, string> = {
+        bengaluru: "bangalore",
+        bangalore: "bangalore",
+
+        gurgaon: "delhi ncr",
+        gurugram: "delhi ncr",
+        noida: "delhi ncr",
+        "new delhi": "delhi ncr",
+        delhi: "delhi ncr",
+
+        mumbai: "mumbai",
+        bombay: "mumbai",
+
+        hyderabad: "hyderabad",
+
+        pune: "pune",
+    };
+    
+
+    return cityAliases[normalized] || normalized;
 }
 
 export function calculateRoleScore(
@@ -347,7 +431,7 @@ if (/\bassociate\b/.test(title)) {
         ? "JUNIOR"
         : "STANDARD";
 }
-
+    console.log("TITLE:", jobTitle, "=>", "STANDARD");
     return "STANDARD";
 }
 
@@ -437,6 +521,7 @@ export function calculateEducationScore(
 
     return userHasBachelor ? 100 : 0;
 }
+
 export function generateMatchReason(
     skillScore: number,
     roleScore: number,
@@ -486,13 +571,14 @@ export function generateMatchReason(
     }
 
     // Location
-    if (locationScore === 100) {
-        reasons.push("Preferred location matches");
-    } else if (locationScore === 50) {
-        reasons.push("Location information is unclear");
-    } else {
-        reasons.push("Location does not match preferences");
-    }
+    // Location
+if (locationScore === 100) {
+    reasons.push("Preferred location matches");
+} else if (locationScore === 50) {
+    reasons.push("India location matches, but preferred city is not specified");
+} else {
+    reasons.push("Location does not match preferences");
+}
 
     // Education
     if (educationScore === 100) {
@@ -556,17 +642,18 @@ export async function calculateJobMatch(
         await getUserProfileForMatching(userProfileId);
 
     const jobResult = await pool.query(
-        `SELECT
-            id,
-            title,
-            description,
-            location,
-            experience_min,
-            experience_max
-         FROM jobs
-         WHERE id = $1`,
-        [jobId]
-    );
+    `SELECT
+        id,
+        title,
+        description,
+        location,
+        country,
+        experience_min,
+        experience_max
+     FROM jobs
+     WHERE id = $1`,
+    [jobId]
+);
 
     if (jobResult.rows.length === 0) {
         throw new Error(
@@ -599,10 +686,11 @@ export async function calculateJobMatch(
         );
 
     const locationScore =
-        calculateLocationScore(
-            profile.preferred_locations,
-            job.location
-        );
+    calculateLocationScore(
+        profile.preferred_locations,
+        job.location,
+        job.country
+    );
     
         const roleScore =
         calculateRoleScore(
@@ -698,6 +786,36 @@ export async function saveJobMatch(
         reason,
     ]
 );
+}
+
+export async function getMatchesForUser(
+    userProfileId: number
+) {
+    const result = await pool.query(
+        `SELECT
+            jm.*,
+            j.title,
+            j.location,
+            j.country,
+            j.application_url,
+            c.name AS company_name
+         FROM job_matches jm
+         JOIN jobs j
+            ON jm.job_id = j.id
+         JOIN companies c
+            ON j.company_id = c.id
+        WHERE jm.user_profile_id = $1
+AND jm.role_score > 0
+AND jm.seniority_score >= 80
+AND (j.country = 'IN' OR j.country = 'India')
+ORDER BY jm.score DESC`,
+        [userProfileId]
+    );
+
+    
+
+    return result.rows;
+    
 }
 
 export async function generateMatchesForUser(

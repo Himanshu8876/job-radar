@@ -32,14 +32,15 @@ export async function saveJob(
                 location = $4,
                 country = $5,
                 employment_type = $6,
-                experience_min = $7,
-                experience_max = $8,
-                posted_at = $9,
-                updated_at = $10,
-                application_url = $11,
+                workplace_type = $7,
+                experience_min = $8,
+                experience_max = $9,
+                posted_at = $10,
+                updated_at = $11,
+                application_url = $12,
                 last_seen_at = CURRENT_TIMESTAMP,
                 closed_at = NULL
-             WHERE id = $12`,
+             WHERE id = $13`,
             [
                 companyId,
                 job.title,
@@ -47,6 +48,7 @@ export async function saveJob(
                 job.location,
                 job.country,
                 job.employmentType,
+                job.workplaceType,
                 job.experienceMin,
                 job.experienceMax,
                 job.postedAt,
@@ -56,9 +58,14 @@ export async function saveJob(
             ]
         );
 
-        const skills = await extractJobSkills(job.description);
+        const skills = await extractJobSkills(
+            job.description
+        );
 
-        await saveJobSkills(jobId, skills);
+        await saveJobSkills(
+            jobId,
+            skills
+        );
 
         return {
             id: jobId,
@@ -77,6 +84,7 @@ export async function saveJob(
             location,
             country,
             employment_type,
+            workplace_type,
             experience_min,
             experience_max,
             posted_at,
@@ -85,7 +93,7 @@ export async function saveJob(
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11, $12, $13
+            $8, $9, $10, $11, $12, $13, $14
         )
         RETURNING id`,
         [
@@ -97,6 +105,7 @@ export async function saveJob(
             job.location,
             job.country,
             job.employmentType,
+            job.workplaceType,
             job.experienceMin,
             job.experienceMax,
             job.postedAt,
@@ -107,9 +116,14 @@ export async function saveJob(
 
     const jobId = result.rows[0].id;
 
-    const skills = await extractJobSkills(job.description);
+    const skills = await extractJobSkills(
+        job.description
+    );
 
-    await saveJobSkills(jobId, skills);
+    await saveJobSkills(
+        jobId,
+        skills
+    );
 
     return {
         id: jobId,
