@@ -92,8 +92,14 @@ export default class LeverCollector
                 job.categories?.commitment,
 
             workplaceType:
-                job.workplaceType,
-
+    job.workplaceType ||
+    (
+        `${job.categories?.location || ""} ${job.descriptionPlain || ""}`
+            .toLowerCase()
+            .includes("remote")
+            ? "Remote"
+            : undefined
+    ),
             postedAt:
                 job.createdAt
                     ? new Date(job.createdAt)

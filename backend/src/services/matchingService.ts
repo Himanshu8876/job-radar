@@ -124,11 +124,11 @@ export function calculateExperienceScore(
     );
 }
 
-
 export function calculateLocationScore(
     preferredLocations: string,
     jobLocation?: string,
-    country?: string
+    country?: string,
+    workplaceType?: string
 ): number {
     if (!jobLocation) {
         return 50;
@@ -140,6 +140,9 @@ export function calculateLocationScore(
     const normalizedCountry =
         country?.toLowerCase().trim();
 
+    const normalizedWorkplaceType =
+    workplaceType?.toLowerCase().trim();
+
     const locations = preferredLocations
         .split(",")
         .map((location) => normalizeCity(location))
@@ -147,24 +150,40 @@ export function calculateLocationScore(
 
     // International remote jobs
     if (
-        normalizedJobLocation.includes("remote") &&
-        normalizedCountry !== "in" &&
-        !normalizedJobLocation.includes("india")
-    ) {
-        return 0;
-    }
+    normalizedWorkplaceType === "remote" &&
+    normalizedCountry !== "in" &&
+    !normalizedJobLocation.includes("india")
+) {
+    return 0;
+}
 
     // India remote jobs
     if (
-        normalizedJobLocation.includes("remote") &&
-        (
-            normalizedCountry === "in" ||
-            normalizedJobLocation.includes("india")
-        )
-    ) {
+    normalizedWorkplaceType === "remote" &&
+    (
+        normalizedCountry === "in" ||
+        normalizedJobLocation.includes("india")
+    )
+) {
+    return 100;
+}
+
+if (
+    normalizedWorkplaceType === "hybrid" &&
+    (
+    normalizedCountry === "in" ||
+    normalizedJobLocation.includes("india")
+)
+) {
+    const hybridCityMatch = locations.some(
+        (location) =>
+            normalizedJobLocation.includes(location)
+    );
+
+    if (hybridCityMatch) {
         return 100;
     }
-
+}
     // Bangalore / Bengaluru
     if (
         locations.includes("bangalore") &&
@@ -210,6 +229,8 @@ export function calculateLocationScore(
     // International non-remote
     return 0;
 }
+
+
 function normalizeCity(
     location: string
 ): string {
@@ -431,7 +452,6 @@ if (/\bassociate\b/.test(title)) {
         ? "JUNIOR"
         : "STANDARD";
 }
-    console.log("TITLE:", jobTitle, "=>", "STANDARD");
     return "STANDARD";
 }
 
@@ -610,6 +630,7 @@ export function calculateOverallScore(
         overallScore.toFixed(2)
     );
 }
+
 export async function getUserProfileForMatching(
     userProfileId: number
 ) {
@@ -641,13 +662,14 @@ export async function calculateJobMatch(
     const profile =
         await getUserProfileForMatching(userProfileId);
 
-    const jobResult = await pool.query(
+   const jobResult = await pool.query(
     `SELECT
         id,
         title,
         description,
         location,
         country,
+        workplace_type,
         experience_min,
         experience_max
      FROM jobs
@@ -689,7 +711,8 @@ export async function calculateJobMatch(
     calculateLocationScore(
         profile.preferred_locations,
         job.location,
-        job.country
+        job.country,
+        job.workplace_type
     );
     
         const roleScore =
@@ -798,6 +821,13 @@ export async function getMatchesForUser(
             j.location,
             j.country,
             j.application_url,
+            j.workplace_type,
+            j.first_seen_at,
+            CASE
+    WHEN j.first_seen_at >= NOW() - INTERVAL '24 hours'
+    THEN TRUE
+    ELSE FALSE
+END AS is_new,
             c.name AS company_name
          FROM job_matches jm
          JOIN jobs j
@@ -811,16 +841,23 @@ AND (j.country = 'IN' OR j.country = 'India')
 ORDER BY jm.score DESC`,
         [userProfileId]
     );
-
+    const newJobs = result.rows.filter(
+    (job) => job.is_new
+).length;
     
 
-    return result.rows;
+    return {
+    jobs: result.rows,
+    newJobs
+};
     
 }
 
 export async function generateMatchesForUser(
     userProfileId: number
-): Promise<number> {
+): Promise<{
+    processedJobs: number;
+}> {
     const jobsResult = await pool.query(
         `SELECT id
          FROM jobs
@@ -852,5 +889,7 @@ export async function generateMatchesForUser(
         processedJobs++;
     }
 
-    return processedJobs;
+    return {
+    processedJobs
+};
 }
