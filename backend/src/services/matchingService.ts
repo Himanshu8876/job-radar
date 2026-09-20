@@ -366,12 +366,15 @@ export function getJobSeniority(
         .trim();
 
     // Most specific seniority levels first
+
+    // Internship
     if (
         /\bintern(ship)?\b/.test(title)
     ) {
         return "INTERN";
     }
 
+    // Fresher / Graduate / Entry Level
     if (
         /\bfresher\b/.test(title) ||
         /\bgraduate\b/.test(title) ||
@@ -380,25 +383,29 @@ export function getJobSeniority(
         return "FRESHER";
     }
 
+    // Executive level
     if (
-    /\bvp\b/.test(title) ||
-    /\bvice president\b/.test(title)
-) {
-    return "EXECUTIVE";
-}
+        /\bvp\b/.test(title) ||
+        /\bvice president\b/.test(title)
+    ) {
+        return "EXECUTIVE";
+    }
 
+    // Principal
     if (
         /\bprincipal\b/.test(title)
     ) {
         return "PRINCIPAL";
     }
 
+    // Staff
     if (
         /\bstaff\b/.test(title)
     ) {
         return "STAFF";
     }
 
+    // Lead
     if (
         /\blead\b/.test(title)
     ) {
@@ -406,12 +413,40 @@ export function getJobSeniority(
     }
 
     if (
+    /\barchitect\b/.test(title)
+) {
+    return "SENIOR";
+}
+
+    // Manager
+    if (
         /\bmanager\b/.test(title) ||
         /\bmanagement\b/.test(title)
     ) {
         return "MANAGER";
     }
 
+    // Director
+    if (
+        /\bdirector\b/.test(title)
+    ) {
+        return "SENIOR";
+    }
+
+    // Engineering levels such as:
+    // SDE II, SDE III, SDE IV, SDE V
+    // Software Development Engineer II/III/IV/V
+    // SDET II/III/IV/V
+   if (
+    /\bsde\s*(ii|iii|iv|v)\b/.test(title) ||
+    /\bsoftware development engineer\s*(ii|iii|iv|v)\b/.test(title) ||
+    /\bsdet\s*(ii|iii|iv|v)\b/.test(title) ||
+    /\bengineer\s+in\s+test\s+(ii|iii|iv|v)\b/.test(title)
+) {
+    return "SENIOR";
+}
+
+    // Senior
     if (
         /\bsenior\b/.test(title) ||
         /\bsr\b/.test(title)
@@ -419,39 +454,44 @@ export function getJobSeniority(
         return "SENIOR";
     }
 
-   if (
-    /\bjunior\b/.test(title) ||
-    /\bjr\b/.test(title)
-) {
-    return "JUNIOR";
-}
+    // Junior
+    if (
+        /\bjunior\b/.test(title) ||
+        /\bjr\b/.test(title)
+    ) {
+        return "JUNIOR";
+    }
 
-if (/\bassociate\b/.test(title)) {
-    const technicalKeywords = [
-        "software",
-        "developer",
-        "engineer",
-        "sde",
-        "frontend",
-        "front end",
-        "backend",
-        "back end",
-        "full stack",
-        "data analyst",
-        "data engineer",
-        "qa engineer",
-        "test engineer",
-    ];
+    // Associate
+    if (
+        /\bassociate\b/.test(title)
+    ) {
+        const technicalKeywords = [
+            "software",
+            "developer",
+            "engineer",
+            "sde",
+            "frontend",
+            "front end",
+            "backend",
+            "back end",
+            "full stack",
+            "data analyst",
+            "data engineer",
+            "qa engineer",
+            "test engineer",
+        ];
 
-    const isTechnicalAssociate =
-        technicalKeywords.some((keyword) =>
-            title.includes(keyword)
-        );
+        const isTechnicalAssociate =
+            technicalKeywords.some((keyword) =>
+                title.includes(keyword)
+            );
 
-    return isTechnicalAssociate
-        ? "JUNIOR"
-        : "STANDARD";
-}
+        return isTechnicalAssociate
+            ? "JUNIOR"
+            : "STANDARD";
+    }
+
     return "STANDARD";
 }
 
@@ -811,6 +851,19 @@ export async function saveJobMatch(
 );
 }
 
+export async function markJobsAsEmailed(
+    jobIds: number[],
+    userProfileId: number
+): Promise<void> {
+    await pool.query(
+        `UPDATE job_matches
+         SET email_sent_at = CURRENT_TIMESTAMP
+         WHERE job_id = ANY($1)
+           AND user_profile_id = $2`,
+        [jobIds, userProfileId]
+    );
+}
+
 export async function getMatchesForUser(
     userProfileId: number
 ) {
@@ -822,9 +875,12 @@ export async function getMatchesForUser(
             j.country,
             j.application_url,
             j.workplace_type,
+            j.experience_min,
+            j.experience_max,
             j.first_seen_at,
-            CASE
-    WHEN j.first_seen_at >= NOW() - INTERVAL '24 hours'
+            jm.email_sent_at,
+           CASE
+    WHEN jm.email_sent_at IS NULL
     THEN TRUE
     ELSE FALSE
 END AS is_new,
@@ -838,6 +894,11 @@ END AS is_new,
 AND jm.role_score > 0
 AND jm.seniority_score >= 80
 AND (j.country = 'IN' OR j.country = 'India')
+AND j.closed_at IS NULL
+AND (
+    j.experience_min IS NULL
+    OR j.experience_min <= 0
+)
 ORDER BY jm.score DESC`,
         [userProfileId]
     );

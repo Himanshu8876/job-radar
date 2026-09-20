@@ -7,6 +7,19 @@ interface SaveJobResult {
     isNew: boolean;
 }
 
+export interface JobFilters {
+    search?: string;
+    location?: string;
+    company?: string;
+    workplace?: string;
+    employmentType?: string;
+    experienceMax?: number;
+    country?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+}
+
 export async function saveJob(
     companyId: number,
     job: NormalizedJob
@@ -58,14 +71,9 @@ export async function saveJob(
             ]
         );
 
-        const skills = await extractJobSkills(
-            job.description
-        );
+        const skills = await extractJobSkills(job.description);
 
-        await saveJobSkills(
-            jobId,
-            skills
-        );
+        await saveJobSkills(jobId, skills);
 
         return {
             id: jobId,
@@ -116,14 +124,9 @@ export async function saveJob(
 
     const jobId = result.rows[0].id;
 
-    const skills = await extractJobSkills(
-        job.description
-    );
+    const skills = await extractJobSkills(job.description);
 
-    await saveJobSkills(
-        jobId,
-        skills
-    );
+    await saveJobSkills(jobId, skills);
 
     return {
         id: jobId,
@@ -148,4 +151,224 @@ export async function markMissingJobsAsClosed(
     );
 
     return result.rowCount ?? 0;
+}
+
+/**
+ * Fetch jobs with filters, pagination and sorting.
+ */
+export async function getJobs(filters: JobFilters) {
+    const {
+        search,
+        location,
+        company,
+        workplace,
+        employmentType,
+        experienceMax,
+        country,
+        page = 1,
+        limit = 20,
+        sort = "latest",
+    } = filters;
+
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const offset = (safePage - 1) * safeLimit;
+
+    const conditions: string[] = [
+        "j.closed_at IS NULL",
+    ];
+
+    const values: unknown[] = [];
+    let parameterIndex = 1;
+
+    // Search title + description
+    if (search) {
+        conditions.push(
+            `(j.title ILIKE $${parameterIndex}
+              OR j.description ILIKE $${parameterIndex})`
+        );
+
+        values.push(`%${search}%`);
+        parameterIndex++;
+    }
+
+    // Location
+    if (location) {
+        conditions.push(
+            `j.location ILIKE $${parameterIndex}`
+        );
+
+        values.push(`%${location}%`);
+        parameterIndex++;
+    }
+
+    // Company
+    if (company) {
+        conditions.push(
+            `c.name ILIKE $${parameterIndex}`
+        );
+
+        values.push(`%${company}%`);
+        parameterIndex++;
+    }
+
+    // Workplace
+    if (workplace) {
+        conditions.push(
+            `j.workplace_type ILIKE $${parameterIndex}`
+        );
+
+        values.push(`%${workplace}%`);
+        parameterIndex++;
+    }
+
+    // Employment type
+    if (employmentType) {
+        conditions.push(
+            `j.employment_type ILIKE $${parameterIndex}`
+        );
+
+        values.push(`%${employmentType}%`);
+        parameterIndex++;
+    }
+
+    // Country
+    if (country) {
+        conditions.push(
+            `(j.country ILIKE $${parameterIndex}
+              OR j.location ILIKE $${parameterIndex})`
+        );
+
+        values.push(`%${country}%`);
+        parameterIndex++;
+    }
+
+    // Experience:
+    // A job with no stated minimum is also allowed.
+    // Otherwise minimum experience must be <= requested maximum.
+    if (experienceMax !== undefined) {
+        conditions.push(
+            `(j.experience_min IS NULL
+              OR j.experience_min <= $${parameterIndex})`
+        );
+
+        values.push(experienceMax);
+        parameterIndex++;
+    }
+
+    const whereClause = conditions.join(" AND ");
+
+    let orderBy = "j.first_seen_at DESC";
+
+    switch (sort) {
+        case "oldest":
+            orderBy = "j.first_seen_at ASC";
+            break;
+
+        case "updated":
+            orderBy = "j.last_seen_at DESC";
+            break;
+
+        case "title":
+            orderBy = "j.title ASC";
+            break;
+
+        case "latest":
+        default:
+            orderBy = "j.first_seen_at DESC";
+            break;
+    }
+
+    // Count total matching jobs
+    const countResult = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM jobs j
+         JOIN companies c ON j.company_id = c.id
+         WHERE ${whereClause}`,
+        values
+    );
+
+    const total = Number(countResult.rows[0].total);
+
+    // Fetch current page
+    const jobsResult = await pool.query(
+        `SELECT
+            j.id,
+            j.company_id,
+            c.name AS company_name,
+            j.source,
+            j.source_job_id,
+            j.title,
+            j.description,
+            j.location,
+            j.country,
+            j.employment_type,
+            j.workplace_type,
+            j.experience_min,
+            j.experience_max,
+            j.posted_at,
+            j.updated_at,
+            j.first_seen_at,
+            j.last_seen_at,
+            j.application_url
+         FROM jobs j
+         JOIN companies c ON j.company_id = c.id
+         WHERE ${whereClause}
+         ORDER BY ${orderBy}
+         LIMIT $${parameterIndex}
+         OFFSET $${parameterIndex + 1}`,
+        [...values, safeLimit, offset]
+    );
+
+    return {
+        jobs: jobsResult.rows,
+        pagination: {
+            page: safePage,
+            limit: safeLimit,
+            total,
+            totalPages: Math.ceil(total / safeLimit),
+            hasNextPage: safePage * safeLimit < total,
+            hasPreviousPage: safePage > 1,
+        },
+    };
+}
+
+/**
+ * Fetch one job by ID.
+ */
+export async function getJobById(jobId: number) {
+    const result = await pool.query(
+        `SELECT
+            j.id,
+            j.company_id,
+            c.name AS company_name,
+            c.website AS company_website,
+            c.careers_url AS company_careers_url,
+            j.source,
+            j.source_job_id,
+            j.title,
+            j.description,
+            j.location,
+            j.country,
+            j.employment_type,
+            j.workplace_type,
+            j.experience_min,
+            j.experience_max,
+            j.posted_at,
+            j.updated_at,
+            j.first_seen_at,
+            j.last_seen_at,
+            j.application_url
+         FROM jobs j
+         JOIN companies c ON j.company_id = c.id
+         WHERE j.id = $1
+         AND j.closed_at IS NULL`,
+        [jobId]
+    );
+
+    if (result.rows.length === 0) {
+        return null;
+    }
+
+    return result.rows[0];
 }

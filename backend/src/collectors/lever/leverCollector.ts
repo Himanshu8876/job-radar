@@ -1,5 +1,6 @@
 import { NormalizedJob } from "../types";
 import { JobCollector } from "../jobCollector";
+import { extractExperience } from "../experienceUtils";
 
 interface LeverJob {
     id: string;
@@ -65,14 +66,8 @@ export default class LeverCollector
             `Total jobs fetched: ${data.length}`
         );
 
-        return data.map((job) => ({
-            source: "lever",
-
-            sourceJobId: job.id,
-
-            title: job.text,
-
-            description: [
+        return data.map((job) => {
+            const description = [
                 job.descriptionPlain ||
                 job.description ||
                 "",
@@ -80,34 +75,54 @@ export default class LeverCollector
                 ...(job.lists || []).map((list) => {
                     return `${list.text}\n${list.content}`;
                 })
-            ].join("\n\n"),
+            ].join("\n\n");
 
-            location:
-                job.categories?.location,
+            const experience =
+                extractExperience(description);
 
-            country:
-                job.country,
+            return {
+                source: "lever",
 
-            employmentType:
-                job.categories?.commitment,
+                sourceJobId: job.id,
 
-            workplaceType:
-    job.workplaceType ||
-    (
-        `${job.categories?.location || ""} ${job.descriptionPlain || ""}`
-            .toLowerCase()
-            .includes("remote")
-            ? "Remote"
-            : undefined
-    ),
-            postedAt:
-                job.createdAt
-                    ? new Date(job.createdAt)
-                    : undefined,
+                title: job.text,
 
-            applicationUrl:
-                job.applyUrl ||
-                job.hostedUrl,
-        }));
+                description,
+
+                location:
+                    job.categories?.location,
+
+                country:
+                    job.country,
+
+                employmentType:
+                    job.categories?.commitment,
+
+                workplaceType:
+                    job.workplaceType ||
+                    (
+                        `${job.categories?.location || ""} ${job.descriptionPlain || ""}`
+                            .toLowerCase()
+                            .includes("remote")
+                            ? "Remote"
+                            : undefined
+                    ),
+
+                experienceMin:
+                    experience.min,
+
+                experienceMax:
+                    experience.max,
+
+                postedAt:
+                    job.createdAt
+                        ? new Date(job.createdAt)
+                        : undefined,
+
+                applicationUrl:
+                    job.applyUrl ||
+                    job.hostedUrl,
+            };
+        });
     }
 }

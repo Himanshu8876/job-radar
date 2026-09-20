@@ -1,4 +1,4 @@
-import { extractExperience } from "./greenhouseCollector";
+import { extractExperience } from "../../collectors/experienceUtils";
 
 const testCases = [
     "Software Engineer with 2-4 years of experience",

@@ -1,5 +1,6 @@
 import { NormalizedJob } from "../collectors/types";
 import { JobCollector } from "../collectors/jobCollector";
+import { extractExperience } from "../collectors/experienceUtils";
 
 interface AshbyJob {
     id: string;
@@ -36,7 +37,8 @@ export default class AshbyCollector
             `Fetching jobs from: ${url}`
         );
 
-        const response = await fetch(url);
+        const response =
+            await fetch(url);
 
         if (!response.ok) {
             throw new Error(
@@ -52,40 +54,53 @@ export default class AshbyCollector
             `Total jobs fetched: ${data.jobs.length}`
         );
 
-        return data.jobs.map((job) => ({
-            source: "ashby",
+        return data.jobs.map((job) => {
+            const description =
+                job.descriptionHtml || "";
 
-            sourceJobId: job.id,
+            const experience =
+                extractExperience(description);
 
-            title: job.title,
+            return {
+                source: "ashby",
 
-            description:
-                job.descriptionHtml || "",
+                sourceJobId: job.id,
 
-            location:
-                job.location,
+                title: job.title,
 
-            country:
-                job.location
-                    ?.toLowerCase()
-                    .includes("india")
-                    ? "IN"
-                    : undefined,
+                description,
 
-            employmentType:
-                job.employmentType,
+                location:
+                    job.location,
 
-            workplaceType:
-                job.workplaceType,
+                country:
+                    job.location
+                        ?.toLowerCase()
+                        .includes("india")
+                        ? "IN"
+                        : undefined,
 
-            postedAt:
-                job.publishedAt
-                    ? new Date(job.publishedAt)
-                    : undefined,
+                employmentType:
+                    job.employmentType,
 
-            applicationUrl:
-                job.applyUrl ||
-                job.jobUrl,
-        }));
+                workplaceType:
+                    job.workplaceType,
+
+                experienceMin:
+                    experience.min,
+
+                experienceMax:
+                    experience.max,
+
+                postedAt:
+                    job.publishedAt
+                        ? new Date(job.publishedAt)
+                        : undefined,
+
+                applicationUrl:
+                    job.applyUrl ||
+                    job.jobUrl,
+            };
+        });
     }
 }

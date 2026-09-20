@@ -8,10 +8,14 @@ import pool from "./config/db";
 import companyRoutes = require("./routes/companyRoutes");
 import jobRoutes = require("./routes/jobRoutes");
 import profileRoutes = require("./routes/profileRoutes");
-import { runAllCollectors } from "./collectors/collectorService";
-import { generateMatchesForUser,getMatchesForUser } from "./services/matchingService";
+import {
+    runAllCollectors,
+    runCompanyCollector
+} from "./collectors/collectorService";
+import { generateMatchesForUser,getMatchesForUser,markJobsAsEmailed } from "./services/matchingService";
 import { startJobScheduler } from "./scheduler/jobScheduler";
 import { sendEmail } from "./services/emailService";
+import applicationRoutes = require("./routes/applicationRoutes");
 
 const app = express();
 app.use(express.json());
@@ -27,6 +31,7 @@ app.get("/", (req, res) => {
 app.use("/companies", companyRoutes);
 app.use("/jobs", jobRoutes);
 app.use("/profiles", profileRoutes);    
+app.use("/applications", applicationRoutes);
 
 app.get("/db-test", async (req, res) => {
     try {
@@ -109,19 +114,24 @@ app.post("/daily-run", async (req, res) => {
         const matches =
             await getMatchesForUser(1);
 
-        await sendEmail(
+        const newMatches = matches.jobs.filter(
+    (job) => job.is_new
+);
+
+        if(newMatches.length > 0) {
+            await sendEmail(
     "garghimanshu778@gmail.com",
-    `Job Radar - ${matches.jobs.length} matching jobs`,
+    `Job Radar - ${newMatches.length} new matching jobs`,
     `
         <h1>Daily Job Radar</h1>
 
         <p>
             You have
-            <strong>${matches.jobs.length}</strong>
-            matching jobs today.
+            <strong>${newMatches.length}</strong>
+            new matching jobs today.
         </p>
 
-        ${matches.jobs.map((job) => `
+        ${newMatches.map((job) => `
             <div style="
                 border: 1px solid #ddd;
                 padding: 16px;
@@ -168,6 +178,11 @@ app.post("/daily-run", async (req, res) => {
         `).join("")}
     `
 );
+await markJobsAsEmailed(
+    newMatches.map((job) => Number(job.job_id)),
+    1
+);
+        }
 
         res.json({
             message: "Daily run completed",
@@ -184,6 +199,34 @@ app.post("/daily-run", async (req, res) => {
     }
 });
 
+app.post("/collect/:companyId", async (req, res) => {
+    try {
+        const companyId = Number(req.params.companyId);
+
+        if (Number.isNaN(companyId)) {
+            return res.status(400).json({
+                message: "Invalid company ID"
+            });
+        }
+
+        const result = await runCompanyCollector(companyId);
+
+        res.json({
+            message: "Company collector completed successfully",
+            result
+        });
+
+    } catch (error) {
+        console.error("Company collector error:", error);
+
+        res.status(500).json({
+            message: "Company collector failed",
+            error: error instanceof Error
+                ? error.message
+                : String(error)
+        });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

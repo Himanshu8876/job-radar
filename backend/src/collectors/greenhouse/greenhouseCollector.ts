@@ -1,5 +1,6 @@
 import { JobCollector } from "../jobCollector";
 import { NormalizedJob } from "../types";
+import { extractExperience } from "../experienceUtils";
 
 interface GreenhouseJob {
     id: number;
@@ -160,71 +161,6 @@ function normalizeWorkplaceType(
     return undefined;
 }
 
-export function extractExperience(
-    description?: string
-): {
-    min?: number;
-    max?: number;
-} {
-    if (!description) {
-        return {};
-    }
-
-    const fresherMatch = description.match(
-        /\b(?:fresh\s+graduates?|new\s+graduates?|recent\s+graduates?)\b/i
-    );
-
-    if (fresherMatch) {
-        return {
-            min: 0,
-            max: 0,
-        };
-    }
-
-    const rangeMatch = description.match(
-        /(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*years?/i
-    );
-
-    if (rangeMatch) {
-        return {
-            min: Number(rangeMatch[1]),
-            max: Number(rangeMatch[2]),
-        };
-    }
-
-    const plusMatch = description.match(
-        /(\d+(?:\.\d+)?)\s*\+\s*years?/i
-    );
-
-    if (plusMatch) {
-        return {
-            min: Number(plusMatch[1]),
-        };
-    }
-
-    const atLeastMatch = description.match(
-        /at\s+least\s+(\d+(?:\.\d+)?)\s*years?/i
-    );
-
-    if (atLeastMatch) {
-        return {
-            min: Number(atLeastMatch[1]),
-        };
-    }
-
-    const singleMatch = description.match(
-        /(?<!at least\s)(\d+(?:\.\d+)?)\s*years?(?:\s+of)?\s+experience/i
-    );
-
-    if (singleMatch) {
-        return {
-            min: Number(singleMatch[1]),
-            max: Number(singleMatch[1]),
-        };
-    }
-
-    return {};
-}
 
 class GreenhouseCollector implements JobCollector {
     private boardToken: string;

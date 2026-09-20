@@ -16,7 +16,16 @@ export async function sendEmail(
         html
     });
 
-    console.log("Email sent:", result);
+    if (result.error) {
+    console.error("Email sending failed:", result.error);
+    throw new Error(
+        `Email sending failed: ${result.error.message}`
+    );
+}
+
+    console.log("Email sent:", result.data);
+
+    return result;
 
     return result;
 }
