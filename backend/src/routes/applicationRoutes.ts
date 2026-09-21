@@ -1,5 +1,6 @@
 import express = require("express");
 import pool from "../config/db";
+import { authenticateToken, AuthRequest } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
@@ -15,9 +16,9 @@ const VALID_STATUSES = [
 /**
  * GET /applications?userId=1
  */
-router.get("/", async (req, res) => {
+router.get("/", authenticateToken, async (req: AuthRequest, res) => {
     try {
-        const userId = Number(req.query.userId) || 1;
+        const userId = req.user!.userId;
 
         const result = await pool.query(
             `SELECT
@@ -66,8 +67,12 @@ router.get("/", async (req, res) => {
 /**
  * POST /applications
  */
-router.post("/", async (req, res) => {
+router.post(
+    "/",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
+        const authenticatedUserId = req.user!.userId;
         const {
             user_profile_id,
             job_id,
@@ -80,6 +85,12 @@ router.post("/", async (req, res) => {
                 message: "user_profile_id and job_id are required"
             });
         }
+
+        if (Number(user_profile_id) !== authenticatedUserId) {
+    return res.status(403).json({
+        message: "You are not allowed to create an application for another user",
+    });
+}
 
         const normalizedStatus = String(status).toUpperCase();
 
@@ -154,8 +165,12 @@ router.post("/", async (req, res) => {
 /**
  * PUT /applications/:id
  */
-router.put("/:id", async (req, res) => {
+router.put(
+    "/:id",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
+        const authenticatedUserId = req.user!.userId;
         const applicationId = Number(req.params.id);
 
         if (Number.isNaN(applicationId)) {
@@ -193,12 +208,14 @@ router.put("/:id", async (req, res) => {
                 END,
                 updated_at = CURRENT_TIMESTAMP
              WHERE id = $3
+AND user_profile_id = $4
              RETURNING *`,
             [
-                normalizedStatus || null,
-                notes !== undefined ? notes : null,
-                applicationId
-            ]
+    normalizedStatus || null,
+    notes !== undefined ? notes : null,
+    applicationId,
+    authenticatedUserId
+]
         );
 
         if (result.rows.length === 0) {
@@ -225,8 +242,12 @@ router.put("/:id", async (req, res) => {
 /**
  * DELETE /applications/:id
  */
-router.delete("/:id", async (req, res) => {
+router.delete(
+    "/:id",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
+        const authenticatedUserId = req.user!.userId;
         const applicationId = Number(req.params.id);
 
         if (Number.isNaN(applicationId)) {
@@ -237,9 +258,11 @@ router.delete("/:id", async (req, res) => {
 
         const result = await pool.query(
             `DELETE FROM applications
-             WHERE id = $1
+WHERE id = $1
+AND user_profile_id = $2
+RETURNING id
              RETURNING id`,
-            [applicationId]
+            [applicationId, authenticatedUserId]
         );
 
         if (result.rows.length === 0) {

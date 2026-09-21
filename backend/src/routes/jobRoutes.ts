@@ -4,6 +4,7 @@ import {
     getJobById,
 } from "../services/jobService";
 import { getMatchesForUser } from "../services/matchingService";
+import { authenticateToken, AuthRequest } from "../middleware/authMiddleware";
 
 const router = express.Router();
 
@@ -54,6 +55,10 @@ router.get("/", async (req, res) => {
                 req.query.employmentType as string | undefined,
             experienceMax,
             country: req.query.country as string | undefined,
+            scope: req.query.scope as
+                | "india"
+                | "international"
+                | undefined,
             page,
             limit,
             sort: req.query.sort as string | undefined,
@@ -83,15 +88,18 @@ router.get("/", async (req, res) => {
  * This route must come before /:id
  * so "matches" is not treated as a job ID.
  */
-router.get("/matches/:userId", async (req, res) => {
+router.get(
+    "/matches/:userId",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
         const userId = Number(req.params.userId);
 
-        if (Number.isNaN(userId)) {
-            return res.status(400).json({
-                message: "Invalid user ID",
-            });
-        }
+        if (userId !== req.user!.userId) {
+    return res.status(403).json({
+        message: "You are not allowed to access another user's matches",
+    });
+}
 
         const matches = await getMatchesForUser(userId);
 

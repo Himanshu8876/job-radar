@@ -1,5 +1,9 @@
 import express = require("express");
 import pool from "../config/db";
+import {
+    authenticateToken,
+    AuthRequest,
+} from "../middleware/authMiddleware";
 
 const router = express.Router();
 
@@ -7,6 +11,8 @@ const router = express.Router();
  * GET /profiles
  *
  * Get all profiles.
+ *
+ * Kept as-is for now.
  */
 router.get("/", async (req, res) => {
     try {
@@ -73,99 +79,118 @@ router.get("/", async (req, res) => {
  * GET /profiles/:id
  *
  * Get one profile with skills.
+ *
+ * Protected by JWT.
  */
-router.get("/:id", async (req, res) => {
-    try {
-        const userId = Number(req.params.id);
+router.get(
+    "/:id",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+        try {
+            const profileId = Number(req.params.id);
+            const authenticatedUserId = req.user?.userId;
 
-        if (Number.isNaN(userId)) {
-            return res.status(400).json({
-                message: "Invalid profile ID",
+            if (Number.isNaN(profileId)) {
+                return res.status(400).json({
+                    message: "Invalid profile ID",
+                });
+            }
+
+            if (!authenticatedUserId) {
+                return res.status(401).json({
+                    message: "Unauthorized",
+                });
+            }
+
+            /*
+             * For now user ID and profile ID are treated as the
+             * same identifier.
+             */
+            if (profileId !== authenticatedUserId) {
+                return res.status(403).json({
+                    message: "You are not allowed to access this profile",
+                });
+            }
+
+            const result = await pool.query(
+                `
+                SELECT
+                    up.id AS user_profile_id,
+                    up.name,
+                    up.email,
+                    up.degree,
+                    up.graduation_year,
+                    up.experience_years,
+                    up.preferred_locations,
+                    up.preferred_roles,
+                    s.name AS skill_name
+                FROM user_profiles up
+                LEFT JOIN user_profile_skills ups
+                    ON up.id = ups.user_profile_id
+                LEFT JOIN skills s
+                    ON ups.skill_id = s.id
+                WHERE up.id = $1
+                ORDER BY s.id
+                `,
+                [profileId]
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({
+                    message: "Profile not found",
+                });
+            }
+
+            const firstRow = result.rows[0];
+
+            const profile = {
+                user_profile_id: firstRow.user_profile_id,
+                name: firstRow.name,
+                email: firstRow.email,
+                degree: firstRow.degree,
+                graduation_year: firstRow.graduation_year,
+                experience_years: firstRow.experience_years,
+                preferred_locations: firstRow.preferred_locations,
+                preferred_roles: firstRow.preferred_roles,
+                skills: result.rows
+                    .map((row) => row.skill_name)
+                    .filter((skill) => skill !== null),
+            };
+
+            res.json(profile);
+
+        } catch (error) {
+            console.error("Error fetching profile:", error);
+
+            res.status(500).json({
+                message: "Failed to fetch profile",
             });
         }
-
-        const result = await pool.query(
-            `
-            SELECT
-                up.id AS user_profile_id,
-                up.name,
-                up.email,
-                up.degree,
-                up.graduation_year,
-                up.experience_years,
-                up.preferred_locations,
-                up.preferred_roles,
-                s.name AS skill_name
-            FROM user_profiles up
-            LEFT JOIN user_profile_skills ups
-                ON up.id = ups.user_profile_id
-            LEFT JOIN skills s
-                ON ups.skill_id = s.id
-            WHERE up.id = $1
-            ORDER BY s.id
-            `,
-            [userId]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({
-                message: "Profile not found",
-            });
-        }
-
-        const firstRow = result.rows[0];
-
-        const profile = {
-            user_profile_id: firstRow.user_profile_id,
-            name: firstRow.name,
-            email: firstRow.email,
-            degree: firstRow.degree,
-            graduation_year: firstRow.graduation_year,
-            experience_years: firstRow.experience_years,
-            preferred_locations: firstRow.preferred_locations,
-            preferred_roles: firstRow.preferred_roles,
-            skills: result.rows
-                .map((row) => row.skill_name)
-                .filter((skill) => skill !== null),
-        };
-
-        res.json(profile);
-
-    } catch (error) {
-        console.error("Error fetching profile:", error);
-
-        res.status(500).json({
-            message: "Failed to fetch profile",
-        });
     }
-});
+);
 
 
 /**
  * POST /profiles
  *
  * Create a new profile.
+ *
+ * Protected by JWT.
  */
-router.post("/", async (req, res) => {
-    try {
-        const {
-            name,
-            email,
-            degree,
-            graduation_year,
-            experience_years,
-            preferred_locations,
-            preferred_roles
-        } = req.body;
+router.post(
+    "/",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+        try {
+            const authenticatedUserId = req.user?.userId;
 
-        if (!name || !email) {
-            return res.status(400).json({
-                message: "name and email are required",
-            });
-        }
+            if (!authenticatedUserId) {
+                return res.status(401).json({
+                    message: "Unauthorized",
+                });
+            }
 
-        const result = await pool.query(
-            `INSERT INTO user_profiles (
+            const {
                 name,
                 email,
                 degree,
@@ -173,116 +198,176 @@ router.post("/", async (req, res) => {
                 experience_years,
                 preferred_locations,
                 preferred_roles
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *`,
-            [
-                name,
-                email,
-                degree,
-                graduation_year,
-                experience_years ?? 0,
-                preferred_locations,
-                preferred_roles
-            ]
-        );
+            } = req.body;
 
-        res.status(201).json({
-            message: "Profile created successfully",
-            profile: result.rows[0],
-        });
+            if (!name || !email) {
+                return res.status(400).json({
+                    message: "name and email are required",
+                });
+            }
 
-    } catch (error: any) {
-        console.error("Error creating profile:", error);
+            /*
+             * A user should not create a profile for another user.
+             */
+            if (String(email).trim().toLowerCase() !== req.user?.email.toLowerCase()) {
+                return res.status(403).json({
+                    message: "Profile email must match authenticated user",
+                });
+            }
 
-        if (error.code === "23505") {
-            return res.status(409).json({
-                message: "A profile with this email already exists",
+            const existingProfile = await pool.query(
+                `SELECT id FROM user_profiles WHERE id = $1`,
+                [authenticatedUserId]
+            );
+
+            if (existingProfile.rows.length > 0) {
+                return res.status(409).json({
+                    message: "Profile already exists",
+                });
+            }
+
+            const result = await pool.query(
+    `INSERT INTO user_profiles (
+        id,
+        name,
+        email,
+        degree,
+        graduation_year,
+        experience_years,
+        preferred_locations,
+        preferred_roles
+    )
+    OVERRIDING SYSTEM VALUE
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *`,
+                [
+                    authenticatedUserId,
+                    name,
+                    email,
+                    degree,
+                    graduation_year,
+                    experience_years ?? 0,
+                    preferred_locations,
+                    preferred_roles
+                ]
+            );
+
+            res.status(201).json({
+                message: "Profile created successfully",
+                profile: result.rows[0],
+            });
+
+        } catch (error: any) {
+            console.error("Error creating profile:", error);
+
+            if (error.code === "23505") {
+                return res.status(409).json({
+                    message: "A profile with this email already exists",
+                });
+            }
+
+            res.status(500).json({
+                message: "Failed to create profile",
             });
         }
-
-        res.status(500).json({
-            message: "Failed to create profile",
-        });
     }
-});
+);
 
 
 /**
  * PUT /profiles/:id
  *
  * Update profile preferences/details.
+ *
+ * Protected by JWT.
  */
-router.put("/:id", async (req, res) => {
-    try {
-        const userId = Number(req.params.id);
+router.put(
+    "/:id",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+        try {
+            const profileId = Number(req.params.id);
+            const authenticatedUserId = req.user?.userId;
 
-        if (Number.isNaN(userId)) {
-            return res.status(400).json({
-                message: "Invalid profile ID",
+            if (Number.isNaN(profileId)) {
+                return res.status(400).json({
+                    message: "Invalid profile ID",
+                });
+            }
+
+            if (!authenticatedUserId) {
+                return res.status(401).json({
+                    message: "Unauthorized",
+                });
+            }
+
+            if (profileId !== authenticatedUserId) {
+                return res.status(403).json({
+                    message: "You are not allowed to update this profile",
+                });
+            }
+
+            const {
+                name,
+                email,
+                degree,
+                graduation_year,
+                experience_years,
+                preferred_locations,
+                preferred_roles
+            } = req.body;
+
+            const result = await pool.query(
+                `UPDATE user_profiles
+                 SET
+                    name = COALESCE($1::VARCHAR(255), name),
+                    email = COALESCE($2::VARCHAR(255), email),
+                    degree = COALESCE($3::VARCHAR(255), degree),
+                    graduation_year = COALESCE($4::INTEGER, graduation_year),
+                    experience_years = COALESCE($5::NUMERIC(3,1), experience_years),
+                    preferred_locations = COALESCE($6::TEXT, preferred_locations),
+                    preferred_roles = COALESCE($7::TEXT, preferred_roles),
+                    updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $8
+                 RETURNING *`,
+                [
+                    name ?? null,
+                    email ?? null,
+                    degree ?? null,
+                    graduation_year ?? null,
+                    experience_years ?? null,
+                    preferred_locations ?? null,
+                    preferred_roles ?? null,
+                    profileId
+                ]
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({
+                    message: "Profile not found",
+                });
+            }
+
+            res.json({
+                message: "Profile updated successfully",
+                profile: result.rows[0],
+            });
+
+        } catch (error: any) {
+            console.error("Error updating profile:", error);
+
+            if (error.code === "23505") {
+                return res.status(409).json({
+                    message: "A profile with this email already exists",
+                });
+            }
+
+            res.status(500).json({
+                message: "Failed to update profile",
             });
         }
-
-        const {
-            name,
-            email,
-            degree,
-            graduation_year,
-            experience_years,
-            preferred_locations,
-            preferred_roles
-        } = req.body;
-
-        const result = await pool.query(
-            `UPDATE user_profiles
-             SET
-                name = COALESCE($1::VARCHAR(255), name),
-                email = COALESCE($2::VARCHAR(255), email),
-                degree = COALESCE($3::VARCHAR(255), degree),
-                graduation_year = COALESCE($4::INTEGER, graduation_year),
-                experience_years = COALESCE($5::NUMERIC(3,1), experience_years),
-                preferred_locations = COALESCE($6::TEXT, preferred_locations),
-                preferred_roles = COALESCE($7::TEXT, preferred_roles),
-                updated_at = CURRENT_TIMESTAMP
-             WHERE id = $8
-             RETURNING *`,
-            [
-                name ?? null,
-                email ?? null,
-                degree ?? null,
-                graduation_year ?? null,
-                experience_years ?? null,
-                preferred_locations ?? null,
-                preferred_roles ?? null,
-                userId
-            ]
-        );
-
-        if (result.rows.length === 0) {
-            return res.status(404).json({
-                message: "Profile not found",
-            });
-        }
-
-        res.json({
-            message: "Profile updated successfully",
-            profile: result.rows[0],
-        });
-
-    } catch (error: any) {
-        console.error("Error updating profile:", error);
-
-        if (error.code === "23505") {
-            return res.status(409).json({
-                message: "A profile with this email already exists",
-            });
-        }
-
-        res.status(500).json({
-            message: "Failed to update profile",
-        });
     }
-});
+);
 
 
 export = router;

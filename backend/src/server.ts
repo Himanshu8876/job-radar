@@ -16,8 +16,14 @@ import { generateMatchesForUser,getMatchesForUser,markJobsAsEmailed } from "./se
 import { startJobScheduler } from "./scheduler/jobScheduler";
 import { sendEmail } from "./services/emailService";
 import applicationRoutes = require("./routes/applicationRoutes");
+import skillRoutes from "./routes/skillRoutes";
+import authRoutes from "./routes/authRoutes";
+import { authenticateToken, AuthRequest } from "./middleware/authMiddleware";
+
+import cors = require("cors");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 const PORT = 8000;
@@ -32,6 +38,8 @@ app.use("/companies", companyRoutes);
 app.use("/jobs", jobRoutes);
 app.use("/profiles", profileRoutes);    
 app.use("/applications", applicationRoutes);
+app.use("/", skillRoutes);
+app.use("/", authRoutes);
 
 app.get("/db-test", async (req, res) => {
     try {
@@ -69,9 +77,18 @@ res.json({
     }
 });
 
-app.post("/profiles/:userId/generate-matches", async (req, res) => {
+app.post(
+    "/profiles/:userId/generate-matches",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
         const userId = Number(req.params.userId);
+
+        if (userId !== req.user!.userId) {
+    return res.status(403).json({
+        message: "You are not allowed to access another user's matches",
+    });
+}
 
         const result = await generateMatchesForUser(userId);
 
@@ -88,9 +105,17 @@ app.post("/profiles/:userId/generate-matches", async (req, res) => {
     }
 });
 
-app.get("/profiles/:userId/matches", async (req, res) => {
+app.get(
+    "/profiles/:userId/matches",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
     try {
         const userId = Number(req.params.userId);
+        if (userId !== req.user!.userId) {
+    return res.status(403).json({
+        message: "You are not allowed to access another user's matches",
+    });
+}
 
         const matches = await getMatchesForUser(userId);
 
