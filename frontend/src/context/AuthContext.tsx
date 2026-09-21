@@ -15,6 +15,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  refreshUser: () => Promise<void>;
   logout: () => void;
 }
 
@@ -24,28 +25,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadUser() {
-      const token = localStorage.getItem("token");
+  async function refreshUser() {
+    const token = localStorage.getItem("token");
 
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await api.get("/auth/me");
-        setUser(response.data.user);
-      } catch (error) {
-        console.error("Failed to load authenticated user:", error);
-        localStorage.removeItem("token");
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
     }
 
-    loadUser();
+    try {
+      setLoading(true);
+      const response = await api.get("/auth/me");
+      setUser(response.data.user);
+    } catch (error) {
+      console.error("Failed to load authenticated user:", error);
+      localStorage.removeItem("token");
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshUser();
   }, []);
 
   function logout() {
@@ -54,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
+    <AuthContext.Provider value={{ user, loading, refreshUser, logout }}>
       {children}
     </AuthContext.Provider>
   );

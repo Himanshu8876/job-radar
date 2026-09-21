@@ -2,9 +2,11 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 function Signup() {
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -13,29 +15,45 @@ function Signup() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  function validateForm() {
+    const nextErrors = {
+      name: name.trim().length >= 2 ? "" : "Enter your full name.",
+      email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+        ? ""
+        : "Enter a valid email address.",
+      password: password.length >= 6
+        ? ""
+        : "Password must be at least 6 characters.",
+      confirmPassword: password === confirmPassword
+        ? ""
+        : "Passwords do not match.",
+    };
+
+    setFieldErrors(nextErrors);
+    return !nextErrors.name &&
+      !nextErrors.email &&
+      !nextErrors.password &&
+      !nextErrors.confirmPassword;
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
     setError("");
 
+    if (!validateForm()) {
+      return;
+    }
+
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
-
-    if (!trimmedName) {
-      setError("Please enter your full name.");
-      return;
-    }
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
 
     try {
       setLoading(true);
@@ -71,6 +89,9 @@ function Signup() {
         preferred_locations: "",
         preferred_roles: "",
       });
+
+      // Load the new account into auth context before entering protected routes.
+      await refreshUser();
 
       // 5. Go to dashboard
       navigate("/dashboard", { replace: true });
@@ -132,12 +153,18 @@ function Signup() {
             <input
               type="text"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setFieldErrors((current) => ({ ...current, name: "" }));
+              }}
               placeholder="Your full name"
               required
               disabled={loading}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100"
+              aria-invalid={Boolean(fieldErrors.name)}
+              aria-describedby={fieldErrors.name ? "signup-name-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.name ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.name && <p id="signup-name-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.name}</p>}
           </div>
 
           {/* Email */}
@@ -149,12 +176,18 @@ function Signup() {
             <input
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldErrors((current) => ({ ...current, email: "" }));
+              }}
               placeholder="you@example.com"
               required
               disabled={loading}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100"
+              aria-invalid={Boolean(fieldErrors.email)}
+              aria-describedby={fieldErrors.email ? "signup-email-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.email ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.email && <p id="signup-email-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.email}</p>}
           </div>
 
           {/* Password */}
@@ -166,12 +199,18 @@ function Signup() {
             <input
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setFieldErrors((current) => ({ ...current, password: "", confirmPassword: "" }));
+              }}
               placeholder="At least 6 characters"
               required
               disabled={loading}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100"
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? "signup-password-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.password && <p id="signup-password-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.password}</p>}
           </div>
 
           {/* Confirm Password */}
@@ -183,14 +222,18 @@ function Signup() {
             <input
               type="password"
               value={confirmPassword}
-              onChange={(event) =>
-                setConfirmPassword(event.target.value)
-              }
+              onChange={(event) => {
+                setConfirmPassword(event.target.value);
+                setFieldErrors((current) => ({ ...current, confirmPassword: "" }));
+              }}
               placeholder="Re-enter your password"
               required
               disabled={loading}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100"
+              aria-invalid={Boolean(fieldErrors.confirmPassword)}
+              aria-describedby={fieldErrors.confirmPassword ? "signup-confirm-password-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.confirmPassword ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.confirmPassword && <p id="signup-confirm-password-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.confirmPassword}</p>}
           </div>
 
           {/* Submit */}

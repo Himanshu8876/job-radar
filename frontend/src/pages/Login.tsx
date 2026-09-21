@@ -12,13 +12,33 @@ function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({
+    email: "",
+    password: "",
+  });
+
+  function validateForm() {
+    const nextErrors = {
+      email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+        ? ""
+        : "Enter a valid email address.",
+      password: password ? "" : "Enter your password.",
+    };
+
+    setFieldErrors(nextErrors);
+    return !nextErrors.email && !nextErrors.password;
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    setError("");
+
+    if (!validateForm()) {
+      return;
+    }
 
     try {
       setLoading(true);
-      setError("");
 
       const response = await api.post("/auth/login", {
         email,
@@ -71,13 +91,24 @@ function Login() {
             </label>
 
             <input
+              id="login-email"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setFieldErrors((current) => ({ ...current, email: "" }));
+              }}
               placeholder="you@example.com"
               required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900"
+              aria-invalid={Boolean(fieldErrors.email)}
+              aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 ${fieldErrors.email ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.email && (
+              <p id="login-email-error" className="mt-1.5 text-sm text-red-600">
+                {fieldErrors.email}
+              </p>
+            )}
           </div>
 
           <div>
@@ -86,13 +117,24 @@ function Login() {
             </label>
 
             <input
+              id="login-password"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setFieldErrors((current) => ({ ...current, password: "" }));
+              }}
               placeholder="Enter your password"
               required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900"
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
+              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
             />
+            {fieldErrors.password && (
+              <p id="login-password-error" className="mt-1.5 text-sm text-red-600">
+                {fieldErrors.password}
+              </p>
+            )}
           </div>
 
           <button
