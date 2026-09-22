@@ -26,6 +26,7 @@ router.get("/", async (req, res) => {
                 up.experience_years,
                 up.preferred_locations,
                 up.preferred_roles,
+                up.resume_url,
                 s.name AS skill_name
             FROM user_profiles up
             LEFT JOIN user_profile_skills ups
@@ -52,6 +53,7 @@ router.get("/", async (req, res) => {
                     experience_years: row.experience_years,
                     preferred_locations: row.preferred_locations,
                     preferred_roles: row.preferred_roles,
+                    resume_url: row.resume_url,
                     skills: [],
                 });
             }
@@ -123,6 +125,7 @@ router.get(
                     up.experience_years,
                     up.preferred_locations,
                     up.preferred_roles,
+                    up.resume_url,
                     s.name AS skill_name
                 FROM user_profiles up
                 LEFT JOIN user_profile_skills ups
@@ -152,6 +155,7 @@ router.get(
                 experience_years: firstRow.experience_years,
                 preferred_locations: firstRow.preferred_locations,
                 preferred_roles: firstRow.preferred_roles,
+                resume_url: firstRow.resume_url,
                 skills: result.rows
                     .map((row) => row.skill_name)
                     .filter((skill) => skill !== null),

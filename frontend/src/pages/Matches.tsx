@@ -29,6 +29,8 @@ function Matches() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [pendingApplicationMatch, setPendingApplicationMatch] =
+    useState<Match | null>(null);
 
   async function fetchMatches() {
     if (!user) {
@@ -75,6 +77,44 @@ function Matches() {
       showToast("Unable to generate matches.", "error");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleMarkAsApplied() {
+    if (!pendingApplicationMatch || !user) {
+      return;
+    }
+
+    const selectedMatch = pendingApplicationMatch;
+    setPendingApplicationMatch(null);
+
+    try {
+      await api.post("/applications", {
+        job_id: selectedMatch.job_id,
+        user_profile_id: user.id,
+        status: "APPLIED",
+        applied_at: new Date().toISOString(),
+        notes: "Applied through company website",
+      });
+
+      setMatches((current) =>
+        current.filter((match) => match.job_id !== selectedMatch.job_id)
+      );
+      showToast("Application marked as applied.", "success");
+    } catch (error: any) {
+      console.error("Failed to save application:", error);
+
+      if (error.response?.status === 409) {
+        setMatches((current) =>
+          current.filter((match) => match.job_id !== selectedMatch.job_id)
+        );
+        showToast(
+          "You have already marked this job as applied.",
+          "error"
+        );
+      } else {
+        showToast("Unable to save application.", "error");
+      }
     }
   }
 
@@ -246,28 +286,28 @@ function Matches() {
                       <span>
                         Skills{" "}
                         <strong className="text-gray-800">
-                          {Number(match.skill_score).toFixed(0)}%
+                          {Number(match.skill_score ?? 0).toFixed(0)}%
                         </strong>
                       </span>
 
                       <span>
                         Role{" "}
                         <strong className="text-gray-800">
-                          {Number(match.role_score).toFixed(0)}%
+                          {Number(match.role_score ?? 0).toFixed(0)}%
                         </strong>
                       </span>
 
                       <span>
                         Location{" "}
                         <strong className="text-gray-800">
-                          {Number(match.location_score).toFixed(0)}%
+                          {Number(match.location_score ?? 0).toFixed(0)}%
                         </strong>
                       </span>
 
                       <span>
                         Experience{" "}
                         <strong className="text-gray-800">
-                          {Number(match.experience_score).toFixed(0)}%
+                          {Number(match.experience_score ?? 0).toFixed(0)}%
                         </strong>
                       </span>
                     </div>
@@ -283,22 +323,95 @@ function Matches() {
                     </p>
 
                     <p className="mt-1 text-2xl font-bold text-gray-900">
-                      {Number(match.score).toFixed(0)}%
+                      {Number(match.score ?? 0).toFixed(0)}%
                     </p>
                   </div>
 
-                  <a
-                    href={match.application_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl bg-gray-900 px-5 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-800 active:scale-[0.98]"
-                  >
-                    Apply →
-                  </a>
+                  <div className="flex flex-col gap-2">
+                    <a
+                      href={match.application_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl bg-gray-900 px-5 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-800 active:scale-[0.98]"
+                    >
+                      Apply →
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => setPendingApplicationMatch(match)}
+                      className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50 active:scale-[0.98]"
+                    >
+                      ✓ I Applied
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+
+      {pendingApplicationMatch && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-gray-950/45 px-4 py-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPendingApplicationMatch(null);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="match-application-confirmation-title"
+            aria-describedby="match-application-confirmation-description"
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xl text-amber-700">
+                !
+              </div>
+
+              <div>
+                <h2
+                  id="match-application-confirmation-title"
+                  className="text-lg font-bold text-gray-900"
+                >
+                  Confirm application
+                </h2>
+                <p
+                  id="match-application-confirmation-description"
+                  className="mt-2 text-sm leading-6 text-gray-600"
+                >
+                  Have you applied for {" "}
+                  <span className="font-semibold text-gray-900">
+                    {pendingApplicationMatch.title}
+                  </span>
+                  ?
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingApplicationMatch(null)}
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMarkAsApplied}
+                className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Yes, I applied
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

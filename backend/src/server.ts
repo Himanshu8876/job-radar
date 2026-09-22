@@ -19,6 +19,7 @@ import applicationRoutes = require("./routes/applicationRoutes");
 import skillRoutes from "./routes/skillRoutes";
 import authRoutes from "./routes/authRoutes";
 import { authenticateToken, AuthRequest } from "./middleware/authMiddleware";
+import resumeRoutes from "./routes/resumeRoutes";
 
 import cors = require("cors");
 
@@ -38,6 +39,7 @@ app.use("/companies", companyRoutes);
 app.use("/jobs", jobRoutes);
 app.use("/profiles", profileRoutes);    
 app.use("/applications", applicationRoutes);
+app.use("/resumes", resumeRoutes);
 app.use("/", skillRoutes);
 app.use("/", authRoutes);
 

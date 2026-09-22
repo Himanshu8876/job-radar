@@ -3,10 +3,12 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
+import { useAuth } from "../context/AuthContext";
 
 function Login() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { refreshUser } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,10 +49,15 @@ function Login() {
 
       const token = response.data.token;
 
+      if (!token) {
+        throw new Error("Login token was not returned.");
+      }
+
       localStorage.setItem("token", token);
+      await refreshUser();
       showToast("Logged in successfully.", "success");
 
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     } catch (error: any) {
       console.error("Login failed:", error);
 

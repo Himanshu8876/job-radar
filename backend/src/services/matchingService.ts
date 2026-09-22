@@ -899,6 +899,12 @@ AND (
     j.experience_min IS NULL
     OR j.experience_min <= 0
 )
+AND NOT EXISTS (
+    SELECT 1
+    FROM applications a
+    WHERE a.job_id = j.id
+      AND a.user_profile_id = $1
+)
 ORDER BY jm.score DESC`,
         [userProfileId]
     );
