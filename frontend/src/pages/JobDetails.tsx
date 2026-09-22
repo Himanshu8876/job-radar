@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import DOMPurify from "dompurify";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
+import { useAuth } from "../context/AuthContext";
 
 interface Job {
   id: number;
@@ -18,12 +19,19 @@ interface Job {
   application_url: string;
 }
 
+interface Application {
+  job_id: number;
+}
+
 function JobDetails() {
   const { id } = useParams<{ id: string }>();
   const { showToast } = useToast();
+  const { user } = useAuth();
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const [applicationLoading, setApplicationLoading] = useState(true);
+  const [hasApplied, setHasApplied] = useState(false);
 
   useEffect(() => {
     async function fetchJob() {
@@ -45,6 +53,35 @@ function JobDetails() {
       fetchJob();
     }
   }, [id, showToast]);
+
+  useEffect(() => {
+    async function fetchApplicationStatus() {
+      try {
+        setApplicationLoading(true);
+
+        const response = await api.get("/applications");
+        const applications: Application[] =
+          response.data.applications || [];
+
+        setHasApplied(
+          applications.some(
+            (application) => String(application.job_id) === id
+          )
+        );
+      } catch (error) {
+        console.error(
+          "Failed to fetch application status:",
+          error
+        );
+      } finally {
+        setApplicationLoading(false);
+      }
+    }
+
+    if (id && user) {
+      fetchApplicationStatus();
+    }
+  }, [id, user]);
 
   if (loading) {
     return <p className="text-gray-500">Loading job...</p>;
@@ -135,15 +172,24 @@ const sanitizedDescription = DOMPurify.sanitize(
           )}
         </div>
 
-        {/* Apply */}
-        <a
-          href={job.application_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-6 inline-block rounded-lg bg-gray-900 px-6 py-3 font-medium text-white hover:bg-gray-800"
-        >
-          Apply for this job
-        </a>
+        {/* Application action */}
+        {!applicationLoading && hasApplied ? (
+          <span className="mt-6 inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-6 py-3 font-medium text-emerald-700">
+            <span aria-hidden="true" className="mr-2">
+              ✓
+            </span>
+            Applied
+          </span>
+        ) : !applicationLoading ? (
+          <a
+            href={job.application_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 inline-block rounded-lg bg-gray-900 px-6 py-3 font-medium text-white hover:bg-gray-800"
+          >
+            Apply for this job
+          </a>
+        ) : null}
       </div>
 
       {/* Description */}

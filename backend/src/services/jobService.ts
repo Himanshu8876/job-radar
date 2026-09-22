@@ -19,6 +19,7 @@ export interface JobFilters {
     page?: number;
     limit?: number;
     sort?: string;
+    userProfileId?: number;
 }
 
 /**
@@ -212,6 +213,7 @@ export async function getJobs(
         page = 1,
         limit = 20,
         sort = "latest",
+        userProfileId,
     } = filters;
 
     // ==========================================
@@ -241,7 +243,19 @@ export async function getJobs(
 
     let parameterIndex = 1;
 
+    if (userProfileId !== undefined) {
+    conditions.push(
+        `NOT EXISTS (
+            SELECT 1
+            FROM applications a
+            WHERE a.job_id = j.id
+              AND a.user_profile_id = $${parameterIndex}
+        )`
+    );
 
+    values.push(userProfileId);
+    parameterIndex++;
+}
     // ==========================================
     // SEARCH
     // ==========================================

@@ -27,7 +27,7 @@ const router = express.Router();
  * Example:
  * /jobs?search=react&location=Bangalore&experienceMax=2&page=1&limit=20
  */
-router.get("/", async (req, res) => {
+router.get("/", authenticateToken, async (req: AuthRequest, res) => {
     try {
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 20;
@@ -43,6 +43,12 @@ router.get("/", async (req, res) => {
         ) {
             return res.status(400).json({
                 message: "experienceMax must be a number",
+            });
+        }
+
+        if (!req.user) {
+            return res.status(401).json({
+                message: "Authentication required",
             });
         }
 
@@ -62,6 +68,9 @@ router.get("/", async (req, res) => {
             page,
             limit,
             sort: req.query.sort as string | undefined,
+
+            // Logged-in user's ID
+            userProfileId: req.user.userId,
         });
 
         res.json(result);

@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import api from "../api/client";
 import { Link } from "react-router-dom";
 import { useToast } from "../components/ToastProvider";
+import { useAuth } from "../context/AuthContext";
 
 interface Job {
   id: number;
@@ -19,6 +20,8 @@ interface Job {
 
 function Jobs() {
   const { showToast } = useToast();
+  const { user } = useAuth();
+
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -40,6 +43,8 @@ function Jobs() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalJobs, setTotalJobs] = useState(0);
+  const [pendingApplicationJob, setPendingApplicationJob] =
+    useState<Job | null>(null);
 
   useEffect(() => {
     async function fetchJobs() {
@@ -90,7 +95,11 @@ function Jobs() {
           "Failed to fetch jobs:",
           error
         );
-        showToast("Unable to load jobs. Please try again.", "error");
+
+        showToast(
+          "Unable to load jobs. Please try again.",
+          "error"
+        );
       } finally {
         setLoading(false);
       }
@@ -135,6 +144,52 @@ function Jobs() {
     setExperienceQuery(0);
 
     setPage(1);
+  }
+
+  async function handleMarkAsApplied() {
+    if (!pendingApplicationJob) {
+      return;
+    }
+
+    const { id: jobId } = pendingApplicationJob;
+    setPendingApplicationJob(null);
+
+    if (!user) {
+      showToast("Please login first.", "error");
+      return;
+    }
+
+    try {
+      await api.post("/applications", {
+        job_id: jobId,
+        user_profile_id: user.id,
+        status: "APPLIED",
+        applied_at: new Date().toISOString(),
+        notes: "Applied through company website",
+      });
+
+      showToast(
+        "Application marked as applied.",
+        "success"
+      );
+    } catch (error: any) {
+      console.error(
+        "Failed to save application:",
+        error
+      );
+
+      if (error.response?.status === 409) {
+        showToast(
+          "You have already marked this job as applied.",
+          "error"
+        );
+      } else {
+        showToast(
+          "Unable to save application.",
+          "error"
+        );
+      }
+    }
   }
 
   return (
@@ -571,16 +626,32 @@ function Jobs() {
                   </div>
 
 
-                  {/* Apply */}
+                  {/* Apply Buttons */}
 
-                  <a
-                    href={job.application_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 rounded-xl bg-gray-900 px-5 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-800 active:scale-[0.98]"
-                  >
-                    Apply →
-                  </a>
+                  <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+
+                    {/* Open company application page */}
+
+                    <a
+                      href={job.application_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl bg-gray-900 px-5 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-gray-800 active:scale-[0.98]"
+                    >
+                      Apply →
+                    </a>
+
+                    {/* Mark application as submitted */}
+
+                    <button
+                      type="button"
+                      onClick={() => setPendingApplicationJob(job)}
+                      className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50 active:scale-[0.98]"
+                    >
+                      ✓ I Applied
+                    </button>
+
+                  </div>
 
                 </div>
 
@@ -648,6 +719,68 @@ function Jobs() {
 
         </nav>
 
+      )}
+
+      {pendingApplicationJob && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-gray-950/45 px-4 py-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPendingApplicationJob(null);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="application-confirmation-title"
+            aria-describedby="application-confirmation-description"
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xl text-amber-700">
+                !
+              </div>
+
+              <div>
+                <h2
+                  id="application-confirmation-title"
+                  className="text-lg font-bold text-gray-900"
+                >
+                  Confirm application
+                </h2>
+                <p
+                  id="application-confirmation-description"
+                  className="mt-2 text-sm leading-6 text-gray-600"
+                >
+                  Have you applied for {" "}
+                  <span className="font-semibold text-gray-900">
+                    {pendingApplicationJob.title}
+                  </span>
+                  ?
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingApplicationJob(null)}
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMarkAsApplied}
+                className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Yes, I applied
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
