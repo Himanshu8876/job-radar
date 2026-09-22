@@ -30,7 +30,6 @@ Human Archive,,https://jobs.ashbyhq.com/humanarchive,ashby,humanarchive,true
 SingleStore,,https://job-boards.greenhouse.io/singlestore,greenhouse,singlestore,true
 AlphaSense,,https://job-boards.greenhouse.io/alphasense,greenhouse,alphasense,true
 Legion,,https://job-boards.greenhouse.io/legion,greenhouse,legion,true
-StarTree,,https://job-boards.greenhouse.io/startree,greenhouse,startree,true
 Dscout,,https://job-boards.greenhouse.io/dscout,greenhouse,dscout,true
 Zeta Global,,https://job-boards.greenhouse.io/zetaglobal,greenhouse,zetaglobal,true
 Glean,,https://job-boards.greenhouse.io/gleanwork,greenhouse,gleanwork,true
@@ -70,10 +69,8 @@ CertifyOS,,https://jobs.ashbyhq.com/certifyos,ashby,certifyos,true
 Razorpay,,https://job-boards.greenhouse.io/razorpaysoftwareprivatelimited,greenhouse,razorpaysoftwareprivatelimited,true
 PhonePe,,https://job-boards.greenhouse.io/phonepe,greenhouse,phonepe,true
 InMobi,,https://job-boards.greenhouse.io/inmobi,greenhouse,inmobi,true
-Dscout,,https://job-boards.greenhouse.io/dscout,greenhouse,dscout,true
 Blenheim Chalcot India,,https://job-boards.greenhouse.io/blenheimchalcotindia,greenhouse,blenheimchalcotindia,true
 Capco,,https://job-boards.greenhouse.io/capco,greenhouse,capco,true
-SimpliSafe,,https://job-boards.greenhouse.io/simplisafe,greenhouse,simplisafe,true
 CommerceIQ,,https://job-boards.greenhouse.io/commerceiq,greenhouse,commerceiq,true
 Zadara,,https://jobs.lever.co/Zadara,lever,Zadara,true
 Smarsh,,https://jobs.lever.co/smarsh,lever,smarsh,true
@@ -90,3 +87,32 @@ OneTrust,,https://job-boards.greenhouse.io/onetrust,greenhouse,onetrust,true
 NiCE,,https://job-boards.greenhouse.io/nice,greenhouse,nice,true
 Truveta,,https://job-boards.greenhouse.io/truveta,greenhouse,truveta,true
 DeepIntent,,https://job-boards.greenhouse.io/deepintent,greenhouse,deepintent,true
+Stripe,,https://job-boards.greenhouse.io/stripe,greenhouse,stripe,true
+Pinterest,,https://job-boards.greenhouse.io/pinterest,greenhouse,pinterest,true
+Dropbox,,https://job-boards.greenhouse.io/dropbox,greenhouse,dropbox,true
+Robinhood,,https://job-boards.greenhouse.io/robinhood,greenhouse,robinhood,true
+Twilio,,https://job-boards.greenhouse.io/twilio,greenhouse,twilio,true
+Affirm,,https://job-boards.greenhouse.io/affirm,greenhouse,affirm,true
+Airbnb,,https://job-boards.greenhouse.io/airbnb,greenhouse,airbnb,true
+GitLab,,https://job-boards.greenhouse.io/gitlab,greenhouse,gitlab,true
+MongoDB,,https://job-boards.greenhouse.io/mongodb,greenhouse,mongodb,true
+Datadog,,https://job-boards.greenhouse.io/datadog,greenhouse,datadog,true
+Palantir,,https://jobs.lever.co/palantir,lever,palantir,true
+Atlassian,,https://jobs.lever.co/atlassian,lever,atlassian,true
+Aera Technology,,https://jobs.lever.co/aeratechnology,lever,aeratechnology,true
+Aleph,,https://jobs.lever.co/aleph,lever,aleph,true
+Xero,,https://jobs.lever.co/xero,lever,xero,true
+Menlo Security,,https://jobs.ashbyhq.com/menlosecurity,ashby,menlosecurity,true
+Snowflake,,https://jobs.ashbyhq.com/snowflake,ashby,snowflake,true
+Airtable,,https://jobs.ashbyhq.com/airtable,ashby,airtable,true
+Vanta,,https://jobs.ashbyhq.com/vanta,ashby,vanta,true
+Sentry,,https://jobs.ashbyhq.com/sentry,ashby,sentry,true
+Innovaccer,,https://job-boards.greenhouse.io/innovaccer,greenhouse,innovaccer,true
+Tekion,,https://job-boards.greenhouse.io/tekion,greenhouse,tekion,true
+ConcertAI,,https://job-boards.greenhouse.io/concertai,greenhouse,concertai,true
+Spaulding Ridge,,https://job-boards.greenhouse.io/spauldingridge,greenhouse,spauldingridge,true
+Commvault,,https://job-boards.greenhouse.io/commvault,greenhouse,commvault,true
+Couchbase,,https://job-boards.greenhouse.io/couchbaseinc,greenhouse,couchbaseinc,true
+Saviynt,,https://jobs.lever.co/saviynt,lever,saviynt,true
+Zeta,,https://jobs.lever.co/zeta,lever,zeta,true
+Zenoti,,https://job-boards.greenhouse.io/zenoti,greenhouse,zenoti,true

@@ -284,59 +284,74 @@ export function calculateRoleScore(
             .trim();
 
     const roleAliases: Record<string, string[]> = {
-        "sde": [
+        sde: [
             "software engineer",
             "software development engineer",
             "sde",
         ],
-
         "software engineer": [
-    "software engineer",
-    "software development engineer",
-    "sde",
-    "software developer",
-    "machine learning engineer",
-],
-
+            "software engineer",
+            "software development engineer",
+            "sde",
+            "software developer",
+        ],
+        "software developer": [
+            "software engineer",
+            "software development engineer",
+            "software developer",
+            "sde",
+        ],
         "full stack developer": [
-    "full stack developer",
-    "full stack engineer",
-    "fullstack developer",
-    "fullstack engineer",
-    "full-stack developer",
-    "full-stack engineer",
-],
-"frontend developer": [
-    "frontend developer",
-    "frontend engineer",
-    "front end developer",
-    "front end engineer",
-    "front-end developer",
-    "front-end engineer",
-],
-"backend developer": [
-    "backend developer",
-    "backend engineer",
-    "back end developer",
-    "back end engineer",
-    "back-end developer",
-    "back-end engineer",
-    "software engineer backend",
-],
-
+            "full stack developer",
+            "full stack engineer",
+            "fullstack developer",
+            "fullstack engineer",
+        ],
+        "frontend developer": [
+            "frontend developer",
+            "frontend engineer",
+            "front end developer",
+            "front end engineer",
+        ],
+        "backend developer": [
+            "backend developer",
+            "backend engineer",
+            "back end developer",
+            "back end engineer",
+        ],
         "data analyst": [
             "data analyst",
         ],
-        
+    };
+
+    const relatedRoles: Record<string, string[]> = {
+        "software engineer": [
+            "web developer",
+            "machine learning engineer",
+        ],
+        sde: [
+            "web developer",
+            "machine learning engineer",
+        ],
+        "data analyst": [
+            "data engineer",
+        ],
     };
 
     for (const role of roles) {
-        const possibleTitles =
-            roleAliases[role] || [role];
+        const possibleTitles = roleAliases[role] || [role];
 
         for (const title of possibleTitles) {
             if (normalizedJobTitle.includes(title)) {
                 return 100;
+            }
+        }
+
+        const relatedTitles = relatedRoles[role] || [];
+
+        for (const title of relatedTitles) {
+            if (normalizedJobTitle.includes(title)) {
+                return 50;
             }
         }
     }
@@ -890,14 +905,16 @@ END AS is_new,
             ON jm.job_id = j.id
          JOIN companies c
             ON j.company_id = c.id
+         JOIN user_profiles up
+            ON up.id = $1
         WHERE jm.user_profile_id = $1
 AND jm.role_score > 0
 AND jm.seniority_score >= 80
-AND (j.country = 'IN' OR j.country = 'India')
 AND j.closed_at IS NULL
+AND jm.location_score > 0
 AND (
     j.experience_min IS NULL
-    OR j.experience_min <= 0
+    OR j.experience_min <= up.experience_years
 )
 AND NOT EXISTS (
     SELECT 1

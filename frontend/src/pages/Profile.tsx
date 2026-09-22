@@ -278,7 +278,7 @@ function Profile() {
     try {
       setReviewSaving(true);
 
-      const response = await api.put(`/profiles/${user.id}`, {
+      const reviewedProfile = {
         name: resumeReview.name,
         email: resumeReview.email,
         degree: resumeReview.degree,
@@ -290,7 +290,31 @@ function Profile() {
           : 0,
         preferred_locations: resumeReview.preferredLocations,
         preferred_roles: resumeReview.preferredRoles,
-      });
+      };
+
+      let response;
+
+      try {
+        response = await api.put(
+          `/profiles/${user.id}`,
+          reviewedProfile
+        );
+      } catch (error: any) {
+        if (error.response?.status !== 409 || !profile?.email) {
+          throw error;
+        }
+
+        // Keep the existing email if the extracted one belongs to another profile.
+        response = await api.put(`/profiles/${user.id}`, {
+          ...reviewedProfile,
+          email: profile.email,
+        });
+
+        showToast(
+          "Profile saved. The existing email was kept because the extracted email is already registered.",
+          "info"
+        );
+      }
 
       setName(resumeReview.name);
       setEmail(resumeReview.email);
@@ -304,6 +328,47 @@ function Profile() {
           ? { ...current, ...response.data.profile }
           : current
       );
+
+      const existingSkillNames = new Set(
+        (profile?.skills || []).map((skill) => skill.toLowerCase())
+      );
+      const matchingExtractedSkills = (resumeReview.skills || [])
+        .map((skillName) =>
+          allSkills.find(
+            (skill) =>
+              skill.name.toLowerCase() === skillName.toLowerCase()
+          )
+        )
+        .filter(
+          (skill): skill is Skill =>
+            skill !== undefined &&
+            !existingSkillNames.has(skill.name.toLowerCase())
+        );
+
+      if (matchingExtractedSkills.length > 0) {
+        await Promise.all(
+          matchingExtractedSkills.map((skill) =>
+            api.post(`/profiles/${user.id}/skills`, {
+              skill_id: skill.id,
+            })
+          )
+        );
+
+        setProfile((current) =>
+          current
+            ? {
+                ...current,
+                skills: [
+                  ...current.skills,
+                  ...matchingExtractedSkills.map((skill) => skill.name),
+                ],
+              }
+            : current
+        );
+      }
+
+      setExtractedResume(null);
+      setResumeReview(null);
 
       showToast("Reviewed resume information saved.", "success");
     } catch (error: any) {

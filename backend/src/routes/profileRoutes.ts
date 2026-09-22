@@ -325,7 +325,16 @@ router.put(
                 `UPDATE user_profiles
                  SET
                     name = COALESCE($1::VARCHAR(255), name),
-                    email = COALESCE($2::VARCHAR(255), email),
+                    email = CASE
+                        WHEN $2::VARCHAR(255) IS NULL THEN email
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM user_profiles existing_profile
+                            WHERE existing_profile.email = $2::VARCHAR(255)
+                              AND existing_profile.id <> $8
+                        ) THEN email
+                        ELSE $2::VARCHAR(255)
+                    END,
                     degree = COALESCE($3::VARCHAR(255), degree),
                     graduation_year = COALESCE($4::INTEGER, graduation_year),
                     experience_years = COALESCE($5::NUMERIC(3,1), experience_years),
