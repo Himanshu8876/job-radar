@@ -27,7 +27,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 8000;
+const PORT = Number(process.env.PORT) || 8000;
 
 startJobScheduler();
 
