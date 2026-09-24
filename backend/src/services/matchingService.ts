@@ -1,5 +1,25 @@
 import pool from "../config/db";
 
+export interface MatchingUser {
+    id: number;
+    email: string;
+}
+
+export async function getUsersForMatching(): Promise<MatchingUser[]> {
+    const result = await pool.query(
+        `SELECT u.id, u.email
+         FROM users u
+         INNER JOIN user_profiles up
+            ON up.user_id = u.id
+         ORDER BY u.id`
+    );
+
+    return result.rows.map((user) => ({
+        id: Number(user.id),
+        email: user.email,
+    }));
+}
+
 export async function calculateSkillScore(
     jobId: number,
     userProfileId: number
