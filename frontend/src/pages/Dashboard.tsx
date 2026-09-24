@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
 import { useAuth } from "../context/AuthContext";
@@ -22,6 +23,7 @@ interface DashboardStats {
 function Dashboard() {
   const { showToast } = useToast();
   const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
 
   const [stats, setStats] = useState<DashboardStats>({
     jobs: 0,
@@ -170,7 +172,16 @@ function Dashboard() {
             recentMatches.map((job) => (
               <div
                 key={job.job_id}
-                className="rounded-xl border bg-white p-5"
+                role="link"
+                tabIndex={0}
+                onClick={() => navigate(`/jobs/${job.job_id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/jobs/${job.job_id}`);
+                  }
+                }}
+                className="cursor-pointer rounded-xl border bg-white p-5 transition hover:border-gray-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -205,7 +216,10 @@ function Dashboard() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div
+                  className="mt-4 flex flex-wrap gap-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <a
                     href={job.application_url}
                     target="_blank"
