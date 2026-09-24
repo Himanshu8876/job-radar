@@ -177,9 +177,12 @@ function Profile() {
       );
 
       setExtractedResume(null);
-      showToast("Resume uploaded successfully.", "success");
-
       setResumeFile(null);
+      showToast(
+        "Resume uploaded successfully. Extracting information now.",
+        "success"
+      );
+      await handleResumeExtract();
     } catch (error: any) {
       console.error("Resume upload failed:", error);
 
@@ -833,20 +836,14 @@ function Profile() {
             </div>
           )}
 
-          {profile.resume_url && (
-            <button
-              type="button"
-              onClick={handleResumeExtract}
-              disabled={resumeExtracting || resumeUploading}
-              className="mt-4 flex w-full items-center justify-center gap-3 rounded-xl bg-blue-700 px-5 py-4 text-base font-extrabold text-white shadow-lg shadow-blue-700/20 transition hover:-translate-y-0.5 hover:bg-blue-800 hover:shadow-blue-700/30 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-sm">
-                ✦
-              </span>
-              {resumeExtracting
-                ? "Extracting information..."
-                : "Extract information from uploaded resume"}
-            </button>
+          {resumeExtracting && (
+            <div className="mt-4 flex items-center justify-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm font-semibold text-blue-800">
+              <span
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700"
+              />
+              Extracting information from your resume...
+            </div>
           )}
           </div>
 
