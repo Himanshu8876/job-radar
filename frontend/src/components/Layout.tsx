@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LogOut, Menu, X } from "lucide-react";
 
 const navItems = [
@@ -41,9 +41,12 @@ function Layout() {
   return (
     <div className="flex min-h-screen bg-gray-50">
       <aside className="hidden w-64 border-r bg-white p-6 md:fixed md:inset-y-0 md:left-0 md:z-40 md:flex md:h-screen md:flex-col md:overflow-y-auto md:shadow-sm">
-        <h1 className="mb-8 text-2xl font-bold text-gray-900">
+        <Link
+          to="/dashboard"
+          className="mb-8 block text-2xl font-bold text-gray-900"
+        >
           Job Radar
-        </h1>
+        </Link>
 
         <nav className="space-y-2">
           {renderNavigation()}
@@ -71,7 +74,13 @@ function Layout() {
         >
           <aside className="flex h-full w-[min(18rem,85vw)] flex-col bg-white p-5 shadow-xl">
             <div className="mb-8 flex items-center justify-between">
-              <h1 className="text-xl font-bold text-gray-900">Job Radar</h1>
+              <Link
+                to="/dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-xl font-bold text-gray-900"
+              >
+                Job Radar
+              </Link>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}

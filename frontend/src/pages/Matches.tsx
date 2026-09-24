@@ -29,6 +29,8 @@ function Matches() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [showGenerateConfirmation, setShowGenerateConfirmation] =
+    useState(false);
   const [pendingApplicationMatch, setPendingApplicationMatch] =
     useState<Match | null>(null);
 
@@ -63,6 +65,12 @@ function Matches() {
     if (!user) {
       return;
     }
+
+    setShowGenerateConfirmation(true);
+  }
+
+  async function handleConfirmGenerateMatches() {
+    setShowGenerateConfirmation(false);
 
     try {
       setGenerating(true);
@@ -349,6 +357,57 @@ function Matches() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {showGenerateConfirmation && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-gray-950/45 px-4 py-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowGenerateConfirmation(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="generate-matches-confirmation-title"
+            aria-describedby="generate-matches-confirmation-description"
+          >
+            <h2
+              id="generate-matches-confirmation-title"
+              className="text-lg font-bold text-gray-900"
+            >
+              Generate matches?
+            </h2>
+            <p
+              id="generate-matches-confirmation-description"
+              className="mt-2 text-sm leading-6 text-gray-600"
+            >
+              Generating matches can take some time while we review the
+              available jobs. Do you want to continue?
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowGenerateConfirmation(false)}
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmGenerateMatches}
+                className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
