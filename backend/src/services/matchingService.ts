@@ -957,43 +957,264 @@ ORDER BY jm.score DESC`,
     
 }
 
+interface MatchingJob {
+    id: number;
+    title: string;
+    description: string;
+    location?: string;
+    country?: string;
+    workplace_type?: string;
+    experience_min?: number;
+    experience_max?: number;
+}
+
+interface SkillScoreCounts {
+    totalRequiredSkills: number;
+    matchedRequiredSkills: number;
+    totalNiceToHaveSkills: number;
+    matchedNiceToHaveSkills: number;
+}
+
+interface MatchToSave {
+    jobId: number;
+    skillScore: number;
+    roleScore: number;
+    experienceScore: number;
+    locationScore: number;
+    educationScore: number;
+    seniorityScore: number;
+    overallScore: number;
+    reason: string;
+}
+
+function calculateSkillScoreFromCounts(
+    counts: SkillScoreCounts
+): number {
+    if (
+        counts.totalRequiredSkills === 0 &&
+        counts.totalNiceToHaveSkills === 0
+    ) {
+        return 0;
+    }
+
+    const requiredScore =
+        counts.totalRequiredSkills === 0
+            ? 100
+            : (counts.matchedRequiredSkills / counts.totalRequiredSkills) * 100;
+
+    const niceToHaveScore =
+        counts.totalNiceToHaveSkills === 0
+            ? 0
+            : (counts.matchedNiceToHaveSkills / counts.totalNiceToHaveSkills) * 100;
+
+    return Number(
+        (requiredScore * 0.80 + niceToHaveScore * 0.20).toFixed(2)
+    );
+}
+
+async function saveJobMatchesInBatches(
+    matches: MatchToSave[],
+    userProfileId: number
+): Promise<void> {
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        for (let start = 0; start < matches.length; start += 500) {
+            const batch = matches.slice(start, start + 500);
+            const values: unknown[] = [];
+            const rows = batch.map((match, index) => {
+                const offset = index * 10;
+                values.push(
+                    match.jobId,
+                    userProfileId,
+                    match.overallScore,
+                    match.skillScore,
+                    match.roleScore,
+                    match.experienceScore,
+                    match.locationScore,
+                    match.educationScore,
+                    match.seniorityScore,
+                    match.reason
+                );
+
+                return `(${Array.from(
+                    { length: 10 },
+                    (_, valueIndex) => `$${offset + valueIndex + 1}`
+                ).join(", ")})`;
+            });
+
+            await client.query(
+                `INSERT INTO job_matches (
+                    job_id,
+                    user_profile_id,
+                    score,
+                    skill_score,
+                    role_score,
+                    experience_score,
+                    location_score,
+                    education_score,
+                    seniority_score,
+                    reason
+                )
+                VALUES ${rows.join(", ")}
+                ON CONFLICT (job_id, user_profile_id)
+                DO UPDATE SET
+                    score = EXCLUDED.score,
+                    skill_score = EXCLUDED.skill_score,
+                    role_score = EXCLUDED.role_score,
+                    experience_score = EXCLUDED.experience_score,
+                    location_score = EXCLUDED.location_score,
+                    education_score = EXCLUDED.education_score,
+                    seniority_score = EXCLUDED.seniority_score,
+                    reason = EXCLUDED.reason`,
+                values
+            );
+        }
+
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function generateMatchesForUser(
     userProfileId: number
 ): Promise<{
     processedJobs: number;
 }> {
+    const profile = await getUserProfileForMatching(userProfileId);
     const jobsResult = await pool.query(
-        `SELECT id
+        `SELECT
+            id,
+            title,
+            description,
+            location,
+            country,
+            workplace_type,
+            experience_min,
+            experience_max
          FROM jobs
          WHERE closed_at IS NULL
          ORDER BY id`
     );
 
-    let processedJobs = 0;
-
-    for (const job of jobsResult.rows) {
-        const match = await calculateJobMatch(
-            Number(job.id),
-            userProfileId
-        );
-
-        await saveJobMatch(
-    match.jobId,
-    userProfileId,
-    match.skillScore,
-    match.roleScore,
-    match.experienceScore,
-    match.locationScore,
-    match.educationScore,
-    match.seniorityScore,
-    match.overallScore,
-    match.reason
-);
-
-        processedJobs++;
+    const jobs = jobsResult.rows as MatchingJob[];
+    if (jobs.length === 0) {
+        return { processedJobs: 0 };
     }
 
+    const jobIds = jobs.map((job) => Number(job.id));
+    const skillResult = await pool.query(
+        `SELECT
+            js.job_id,
+            js.skill_type,
+            COUNT(*) AS total_skills,
+            COUNT(ups.skill_id) AS matched_skills
+         FROM job_skills js
+         LEFT JOIN user_profile_skills ups
+            ON ups.skill_id = js.skill_id
+            AND ups.user_profile_id = $1
+         WHERE js.job_id = ANY($2::int[])
+         GROUP BY js.job_id, js.skill_type`,
+        [userProfileId, jobIds]
+    );
+
+    const skillCounts = new Map<number, SkillScoreCounts>();
+    for (const row of skillResult.rows) {
+        const jobId = Number(row.job_id);
+        const counts = skillCounts.get(jobId) || {
+            totalRequiredSkills: 0,
+            matchedRequiredSkills: 0,
+            totalNiceToHaveSkills: 0,
+            matchedNiceToHaveSkills: 0,
+        };
+
+        if (row.skill_type === "REQUIRED") {
+            counts.totalRequiredSkills = Number(row.total_skills);
+            counts.matchedRequiredSkills = Number(row.matched_skills);
+        } else if (row.skill_type === "NICE_TO_HAVE") {
+            counts.totalNiceToHaveSkills = Number(row.total_skills);
+            counts.matchedNiceToHaveSkills = Number(row.matched_skills);
+        }
+
+        skillCounts.set(jobId, counts);
+    }
+
+    const matches: MatchToSave[] = [];
+
+    for (const job of jobs) {
+        const skillScore = calculateSkillScoreFromCounts(
+            skillCounts.get(Number(job.id)) || {
+                totalRequiredSkills: 0,
+                matchedRequiredSkills: 0,
+                totalNiceToHaveSkills: 0,
+                matchedNiceToHaveSkills: 0,
+            }
+        );
+
+        const experienceScore = calculateExperienceScore(
+            Number(profile.experience_years),
+            job.experience_min !== null && job.experience_min !== undefined
+                ? Number(job.experience_min)
+                : undefined,
+            job.experience_max !== null && job.experience_max !== undefined
+                ? Number(job.experience_max)
+                : undefined
+        );
+        const seniorityScore = calculateSeniorityScore(
+            getJobSeniority(job.title)
+        );
+        const locationScore = calculateLocationScore(
+            profile.preferred_locations,
+            job.location,
+            job.country,
+            job.workplace_type
+        );
+        const roleScore = calculateRoleScore(
+            profile.preferred_roles,
+            job.title
+        );
+        const educationScore = calculateEducationScore(
+            profile.degree,
+            job.description
+        );
+        const reason = generateMatchReason(
+            skillScore,
+            roleScore,
+            experienceScore,
+            seniorityScore,
+            locationScore,
+            educationScore
+        );
+
+        matches.push({
+            jobId: Number(job.id),
+            skillScore,
+            roleScore,
+            experienceScore,
+            locationScore,
+            educationScore,
+            seniorityScore,
+            overallScore: calculateOverallScore(
+                skillScore,
+                roleScore,
+                experienceScore,
+                seniorityScore,
+                locationScore,
+                educationScore
+            ),
+            reason,
+        });
+    }
+
+    await saveJobMatchesInBatches(matches, userProfileId);
+
     return {
-    processedJobs
+        processedJobs: matches.length,
 };
 }
