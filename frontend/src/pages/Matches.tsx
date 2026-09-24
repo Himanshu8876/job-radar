@@ -70,6 +70,10 @@ function Matches() {
   }
 
   async function handleConfirmGenerateMatches() {
+    if (!user) {
+      return;
+    }
+
     setShowGenerateConfirmation(false);
 
     try {
