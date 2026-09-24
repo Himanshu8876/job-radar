@@ -68,7 +68,7 @@ function Layout() {
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setMobileMenuOpen(false);
+              setMobileMenuOpen(false)
             }
           }}
         >
