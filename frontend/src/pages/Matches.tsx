@@ -35,6 +35,10 @@ function Matches() {
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const [profileCompletionError, setProfileCompletionError] = useState<{
+    message: string;
+    missingFields: string[];
+  } | null>(null);
   const [showGenerateConfirmation, setShowGenerateConfirmation] =
     useState(false);
   const [pendingApplicationMatch, setPendingApplicationMatch] =
@@ -87,6 +91,7 @@ function Matches() {
     }
 
     setShowGenerateConfirmation(false);
+    setProfileCompletionError(null);
 
     try {
       const job = await startMatchGeneration();
@@ -100,10 +105,33 @@ function Matches() {
       );
     } catch (error) {
       console.error("Failed to generate matches:", error);
-      showToast(
-        "Unable to start match generation. Please try again.",
-        "error"
-      );
+
+      const response = (error as {
+        response?: {
+          status?: number;
+          data?: {
+            code?: string;
+            message?: string;
+            missingFields?: string[];
+          };
+        };
+      }).response;
+
+      if (
+        response?.status === 422 &&
+        response.data?.code === "PROFILE_INCOMPLETE"
+      ) {
+        setProfileCompletionError({
+          message: response.data.message ||
+            "Complete your profile before generating matches.",
+          missingFields: response.data.missingFields || [],
+        });
+      } else {
+        showToast(
+          "Unable to start match generation. Please try again.",
+          "error"
+        );
+      }
     }
   }
 
@@ -192,6 +220,26 @@ function Matches() {
         </div>
       </div>
 
+      {profileCompletionError && (
+        <div
+          role="alert"
+          className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+        >
+          <p className="font-semibold">{profileCompletionError.message}</p>
+          {profileCompletionError.missingFields.length > 0 && (
+            <p className="mt-1">
+              Add: {profileCompletionError.missingFields.join(", ")}.
+            </p>
+          )}
+          <Link
+            to="/profile"
+            className="mt-3 inline-flex font-semibold underline underline-offset-2"
+          >
+            Complete your profile
+          </Link>
+        </div>
+      )}
+
       {matchGenerationJob && (
         <div
           role={matchGenerationJob.status === "failed" ? "alert" : "status"}
@@ -210,7 +258,21 @@ function Matches() {
           {matchGenerationJob.status === "completed" &&
             "Match generation completed."}
           {matchGenerationJob.status === "failed" &&
-            (matchGenerationJob.error || "Match generation failed. Please try again.")}
+            <>
+              <p>
+                {matchGenerationJob.error ||
+                  "Match generation failed. Please try again."}
+              </p>
+              {matchGenerationJob.missingFields &&
+                matchGenerationJob.missingFields.length > 0 && (
+                  <Link
+                    to="/profile"
+                    className="mt-2 inline-flex font-semibold underline underline-offset-2"
+                  >
+                    Complete your profile
+                  </Link>
+                )}
+            </>}
         </div>
       )}
 

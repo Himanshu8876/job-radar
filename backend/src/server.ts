@@ -23,6 +23,7 @@ import {
 } from "./scheduler/jobScheduler";
 import {
     createOrGetActiveMatchGenerationJob,
+    getMissingMatchProfileFields,
     getMatchGenerationJob,
     processMatchGenerationJob,
     startMatchGenerationJobWorker,
@@ -119,6 +120,23 @@ app.post(
                 });
             }
 
+            const missingFields =
+                await getMissingMatchProfileFields(userId);
+
+            if (missingFields === null) {
+                return res.status(404).json({
+                    message: "Profile not found",
+                });
+            }
+
+            if (missingFields.length > 0) {
+                return res.status(422).json({
+                    code: "PROFILE_INCOMPLETE",
+                    message: "Complete your profile before generating matches.",
+                    missingFields,
+                });
+            }
+
             const job = await createOrGetActiveMatchGenerationJob(userId);
 
             if (!job) {
@@ -193,13 +211,28 @@ app.get(
                 });
             }
 
+            let errorMessage = job.error_message;
+            let missingFields: string[] = [];
+
+            if (job.status === "failed") {
+                const profileMissingFields =
+                    await getMissingMatchProfileFields(userId);
+
+                if (profileMissingFields?.length) {
+                    missingFields = profileMissingFields;
+                    errorMessage =
+                        `Complete your profile before generating matches. Missing: ${missingFields.join(", ")}.`;
+                }
+            }
+
             return res.json({
                 jobId: job.id,
                 status: job.status,
                 createdAt: job.created_at,
                 startedAt: job.started_at,
                 completedAt: job.completed_at,
-                error: job.error_message,
+                error: errorMessage,
+                missingFields,
             });
         } catch (error) {
             console.error("Could not retrieve match-generation status:", error);

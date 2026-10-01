@@ -19,6 +19,11 @@ export interface MatchGenerationJob {
     updated_at: Date;
 }
 
+export type MissingMatchProfileField =
+    | "Preferred roles"
+    | "Preferred locations"
+    | "Skills";
+
 interface ClaimedMatchGenerationJob {
     id: string;
     user_profile_id: number;
@@ -42,6 +47,47 @@ async function findActiveJob(
     );
 
     return result.rows[0] ?? null;
+}
+
+export async function getMissingMatchProfileFields(
+    userProfileId: number
+): Promise<MissingMatchProfileField[] | null> {
+    const result = await pool.query(
+        `SELECT
+            up.preferred_roles,
+            up.preferred_locations,
+            EXISTS (
+                SELECT 1
+                FROM user_profile_skills ups
+                WHERE ups.user_profile_id = up.id
+            ) AS has_skills
+         FROM user_profiles up
+         WHERE up.id = $1`,
+        [userProfileId]
+    );
+
+    if (result.rows.length === 0) {
+        return null;
+    }
+
+    const profile = result.rows[0];
+    const missingFields: MissingMatchProfileField[] = [];
+    const hasNonEmptyValue = (value: string | null) =>
+        Boolean(value?.split(",").some((item) => item.trim().length > 0));
+
+    if (!hasNonEmptyValue(profile.preferred_roles)) {
+        missingFields.push("Preferred roles");
+    }
+
+    if (!hasNonEmptyValue(profile.preferred_locations)) {
+        missingFields.push("Preferred locations");
+    }
+
+    if (!profile.has_skills) {
+        missingFields.push("Skills");
+    }
+
+    return missingFields;
 }
 
 export async function recoverStaleMatchGenerationJobs(): Promise<number> {

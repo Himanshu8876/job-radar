@@ -89,7 +89,7 @@ function Signup() {
         degree: null,
         graduation_year: null,
         experience_years: 0,
-        preferred_locations: "",
+        preferred_locations: null,
         preferred_roles: "",
       });
 
