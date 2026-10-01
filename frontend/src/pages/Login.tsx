@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
 import { useAuth } from "../context/AuthContext";
@@ -12,6 +13,7 @@ function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({
@@ -123,20 +125,31 @@ function Login() {
               Password
             </label>
 
-            <input
-              id="login-password"
-              type="password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setFieldErrors((current) => ({ ...current, password: "" }));
-              }}
-              placeholder="Enter your password"
-              required
-              aria-invalid={Boolean(fieldErrors.password)}
-              aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
-              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
-            />
+            <div className="relative">
+              <input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setFieldErrors((current) => ({ ...current, password: "" }));
+                }}
+                placeholder="Enter your password"
+                required
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
+                className={`w-full rounded-lg border py-3 pl-4 pr-12 outline-none focus:border-gray-900 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-gray-900"
+              >
+                {showPassword ? <EyeOff aria-hidden="true" className="h-5 w-5" /> : <Eye aria-hidden="true" className="h-5 w-5" />}
+              </button>
+            </div>
             {fieldErrors.password && (
               <p id="login-password-error" className="mt-1.5 text-sm text-red-600">
                 {fieldErrors.password}

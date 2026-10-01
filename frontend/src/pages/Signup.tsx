@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -12,6 +13,8 @@ function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -196,20 +199,32 @@ function Signup() {
               Password
             </label>
 
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setFieldErrors((current) => ({ ...current, password: "", confirmPassword: "" }));
-              }}
-              placeholder="At least 6 characters"
-              required
-              disabled={loading}
-              aria-invalid={Boolean(fieldErrors.password)}
-              aria-describedby={fieldErrors.password ? "signup-password-error" : undefined}
-              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setFieldErrors((current) => ({ ...current, password: "", confirmPassword: "" }));
+                }}
+                placeholder="At least 6 characters"
+                required
+                disabled={loading}
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? "signup-password-error" : undefined}
+                className={`w-full rounded-lg border py-3 pl-4 pr-12 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.password ? "border-red-400" : "border-gray-300"}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                disabled={loading}
+                className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-gray-900 disabled:cursor-not-allowed"
+              >
+                {showPassword ? <EyeOff aria-hidden="true" className="h-5 w-5" /> : <Eye aria-hidden="true" className="h-5 w-5" />}
+              </button>
+            </div>
             {fieldErrors.password && <p id="signup-password-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.password}</p>}
           </div>
 
@@ -219,20 +234,32 @@ function Signup() {
               Confirm Password
             </label>
 
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => {
-                setConfirmPassword(event.target.value);
-                setFieldErrors((current) => ({ ...current, confirmPassword: "" }));
-              }}
-              placeholder="Re-enter your password"
-              required
-              disabled={loading}
-              aria-invalid={Boolean(fieldErrors.confirmPassword)}
-              aria-describedby={fieldErrors.confirmPassword ? "signup-confirm-password-error" : undefined}
-              className={`w-full rounded-lg border px-4 py-3 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.confirmPassword ? "border-red-400" : "border-gray-300"}`}
-            />
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value);
+                  setFieldErrors((current) => ({ ...current, confirmPassword: "" }));
+                }}
+                placeholder="Re-enter your password"
+                required
+                disabled={loading}
+                aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                aria-describedby={fieldErrors.confirmPassword ? "signup-confirm-password-error" : undefined}
+                className={`w-full rounded-lg border py-3 pl-4 pr-12 outline-none focus:border-gray-900 disabled:bg-gray-100 ${fieldErrors.confirmPassword ? "border-red-400" : "border-gray-300"}`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((visible) => !visible)}
+                aria-label={showConfirmPassword ? "Hide confirmed password" : "Show confirmed password"}
+                aria-pressed={showConfirmPassword}
+                disabled={loading}
+                className="absolute inset-y-0 right-0 flex items-center px-4 text-gray-500 hover:text-gray-900 disabled:cursor-not-allowed"
+              >
+                {showConfirmPassword ? <EyeOff aria-hidden="true" className="h-5 w-5" /> : <Eye aria-hidden="true" className="h-5 w-5" />}
+              </button>
+            </div>
             {fieldErrors.confirmPassword && <p id="signup-confirm-password-error" className="mt-1.5 text-sm text-red-600">{fieldErrors.confirmPassword}</p>}
           </div>
 
