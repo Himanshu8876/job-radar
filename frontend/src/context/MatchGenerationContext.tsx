@@ -23,6 +23,7 @@ export interface MatchGenerationJob {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  missingFields?: string[];
 }
 
 interface MatchGenerationContextValue {

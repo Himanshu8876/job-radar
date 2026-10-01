@@ -47,6 +47,9 @@ function Jobs() {
     useState<Job | null>(null);
 
   useEffect(() => {
+    let isCurrent = true;
+    const controller = new AbortController();
+
     async function fetchJobs() {
       try {
         setLoading(true);
@@ -75,8 +78,11 @@ function Jobs() {
         params.set("experienceMax", String(experienceQuery));
 
         const response = await api.get(
-          `/jobs?${params.toString()}`
+          `/jobs?${params.toString()}`,
+          { signal: controller.signal }
         );
+
+        if (!isCurrent) return;
 
         setJobs(response.data.jobs);
 
@@ -91,21 +97,27 @@ function Jobs() {
           response.data.pagination.total
         );
       } catch (error) {
-        console.error(
-          "Failed to fetch jobs:",
-          error
-        );
+        if (!controller.signal.aborted) {
+          console.error("Failed to fetch jobs:", error);
 
-        showToast(
-          "Unable to load jobs. Please try again.",
-          "error"
-        );
+          showToast(
+            "Unable to load jobs. Please try again.",
+            "error"
+          );
+        }
       } finally {
-        setLoading(false);
+        if (isCurrent) {
+          setLoading(false);
+        }
       }
     }
 
-    fetchJobs();
+    void fetchJobs();
+
+    return () => {
+      isCurrent = false;
+      controller.abort();
+    };
   }, [
     searchQuery,
     locationQuery,
@@ -115,6 +127,18 @@ function Jobs() {
     page,
     showToast,
   ]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPage(1);
+      setLocationQuery(location);
+      setWorkplaceQuery(workplace);
+      setScopeQuery(scope);
+      setExperienceQuery(experience);
+    }, 400);
+
+    return () => window.clearTimeout(timeout);
+  }, [location, workplace, scope, experience]);
 
   function handleSearch(
     event: FormEvent<HTMLFormElement>

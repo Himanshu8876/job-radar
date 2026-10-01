@@ -72,9 +72,9 @@ interface ResumeReview {
 const DEFAULT_PREFERRED_LOCATIONS = [
   "Bangalore",
   "Hyderabad",
-  "Pune",
   "Mumbai",
-  "Delhi NCR",
+  "Pune",
+  "Gurgaon",
 ];
 
 function Profile() {
@@ -146,17 +146,28 @@ function Profile() {
           String(data.experience_years ?? 0)
         );
 
-        const savedLocations = data.preferred_locations === null
-          ? null
-          : data.preferred_locations
-              .split(",")
-              .map((location) => location.trim())
-              .filter(Boolean);
-        setPreferredLocations(
-          savedLocations === null
-            ? DEFAULT_PREFERRED_LOCATIONS.join(", ")
-            : savedLocations.join(", ")
-        );
+        let locationsValue = data.preferred_locations;
+
+        if (locationsValue === null || !locationsValue.trim()) {
+          locationsValue = DEFAULT_PREFERRED_LOCATIONS.join(", ");
+          try {
+            await api.put(`/profiles/${data.user_profile_id}`, {
+              preferred_locations: locationsValue,
+            });
+          } catch (error) {
+            console.error("Failed to initialize preferred locations:", error);
+            showToast(
+              "Default locations couldn't be saved. Please save your profile to keep them.",
+              "error"
+            );
+          }
+        }
+
+        const savedLocations = locationsValue
+          .split(",")
+          .map((location) => location.trim())
+          .filter(Boolean);
+        setPreferredLocations(savedLocations.join(", "));
 
         setPreferredRoles(
           data.preferred_roles || ""
