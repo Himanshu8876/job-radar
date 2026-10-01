@@ -11,31 +11,34 @@ import Applications from "./pages/Applications";
 import Profile from "./pages/Profile";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Signup from "./pages/Signup";
+import { MatchGenerationProvider } from "./context/MatchGenerationContext";
 
 function App() {
   return (
-    <Routes>
-      {/* Public pages - NO SIDEBAR */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
+    <MatchGenerationProvider>
+      <Routes>
+        {/* Public pages - NO SIDEBAR */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
 
-      {/* Authenticated application - SIDEBAR */}
-      <Route element={<ProtectedRoute />}>
-  <Route element={<Layout />}>
-    <Route
-      path="/"
-      element={<Navigate to="/dashboard" replace />}
-    />
+        {/* Authenticated application - SIDEBAR */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            <Route
+              path="/"
+              element={<Navigate to="/dashboard" replace />}
+            />
 
-    <Route path="/dashboard" element={<Dashboard />} />
-    <Route path="/jobs" element={<Jobs />} />
-    <Route path="/jobs/:id" element={<JobDetails />} />
-    <Route path="/matches" element={<Matches />} />
-    <Route path="/applications" element={<Applications />} />
-    <Route path="/profile" element={<Profile />} />
-  </Route>
-</Route>
-    </Routes>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:id" element={<JobDetails />} />
+            <Route path="/matches" element={<Matches />} />
+            <Route path="/applications" element={<Applications />} />
+            <Route path="/profile" element={<Profile />} />
+          </Route>
+        </Route>
+      </Routes>
+    </MatchGenerationProvider>
   );
 }
 

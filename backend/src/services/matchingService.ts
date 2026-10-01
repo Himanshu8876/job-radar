@@ -10,7 +10,7 @@ export async function getUsersForMatching(): Promise<MatchingUser[]> {
         `SELECT u.id, u.email
          FROM users u
          INNER JOIN user_profiles up
-            ON up.user_id = u.id
+            ON up.id = u.id
          ORDER BY u.id`
     );
 

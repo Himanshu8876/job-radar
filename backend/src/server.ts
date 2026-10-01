@@ -21,6 +21,12 @@ import {
     runDailyMatching,
     startJobScheduler,
 } from "./scheduler/jobScheduler";
+import {
+    createOrGetActiveMatchGenerationJob,
+    getMatchGenerationJob,
+    processMatchGenerationJob,
+    startMatchGenerationJobWorker,
+} from "./services/matchGenerationJobService";
 import applicationRoutes = require("./routes/applicationRoutes");
 import skillRoutes from "./routes/skillRoutes";
 import authRoutes from "./routes/authRoutes";
@@ -36,6 +42,7 @@ app.use(express.json());
 const PORT = Number(process.env.PORT) || 8000;
 
 startJobScheduler();
+startMatchGenerationJobWorker();
 
 app.get("/", (req, res) => {
     res.send("Job Radar Backend is running!");
@@ -43,7 +50,7 @@ app.get("/", (req, res) => {
 
 app.use("/companies", companyRoutes);
 app.use("/jobs", jobRoutes);
-app.use("/profiles", profileRoutes);    
+app.use("/profiles", profileRoutes);
 app.use("/applications", applicationRoutes);
 app.use("/resumes", resumeRoutes);
 app.use("/", skillRoutes);
@@ -97,29 +104,112 @@ app.post(
     "/profiles/:userId/generate-matches",
     authenticateToken,
     async (req: AuthRequest, res) => {
-    try {
+        try {
+            const userId = Number(req.params.userId);
+
+            if (!Number.isSafeInteger(userId) || userId <= 0) {
+                return res.status(400).json({
+                    message: "Invalid profile ID",
+                });
+            }
+
+            if (userId !== req.user!.userId) {
+                return res.status(403).json({
+                    message: "You are not allowed to generate matches for another user",
+                });
+            }
+
+            const job = await createOrGetActiveMatchGenerationJob(userId);
+
+            if (!job) {
+                return res.status(404).json({
+                    message: "Profile not found",
+                });
+            }
+
+            res.status(202).json({
+                jobId: job.id,
+                status: job.status,
+                createdAt: job.created_at,
+                startedAt: job.started_at,
+                completedAt: job.completed_at,
+                error: job.error_message,
+            });
+
+            setImmediate(() => {
+                void processMatchGenerationJob(job.id).catch((error) => {
+                    console.error(
+                        `Could not start match-generation job ${job.id}:`,
+                        error
+                    );
+                });
+            });
+        } catch (error) {
+            console.error("Could not queue match generation:", error);
+
+            if (!res.headersSent) {
+                res.status(500).json({
+                    message: "Unable to start match generation",
+                });
+            }
+        }
+    }
+);
+
+app.get(
+    "/profiles/:userId/generate-matches/:jobId",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
         const userId = Number(req.params.userId);
+        const jobId = req.params.jobId;
+
+        if (!Number.isSafeInteger(userId) || userId <= 0) {
+            return res.status(400).json({
+                message: "Invalid profile ID",
+            });
+        }
 
         if (userId !== req.user!.userId) {
-    return res.status(403).json({
-        message: "You are not allowed to access another user's matches",
-    });
-}
+            return res.status(403).json({
+                message: "You are not allowed to access another user's match-generation job",
+            });
+        }
 
-        const result = await generateMatchesForUser(userId);
+        if (
+            typeof jobId !== "string" ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)
+        ) {
+            return res.status(400).json({
+                message: "Invalid match-generation job ID",
+            });
+        }
 
-        res.json({
-            message: "Matches generated successfully",
-            result
-        });
-    } catch (error) {
-        console.error("Match generation error:", error);
+        try {
+            const job = await getMatchGenerationJob(jobId, userId);
 
-        res.status(500).json({
-            message: "Failed to generate matches"
-        });
+            if (!job) {
+                return res.status(404).json({
+                    message: "Match-generation job not found",
+                });
+            }
+
+            return res.json({
+                jobId: job.id,
+                status: job.status,
+                createdAt: job.created_at,
+                startedAt: job.started_at,
+                completedAt: job.completed_at,
+                error: job.error_message,
+            });
+        } catch (error) {
+            console.error("Could not retrieve match-generation status:", error);
+
+            return res.status(500).json({
+                message: "Unable to retrieve match-generation status",
+            });
+        }
     }
-});
+);
 
 app.get(
     "/profiles/:userId/matches",

@@ -15,7 +15,21 @@ export async function runCollector(
 }> {
     const collectionStartedAt = new Date();
 
-    const jobs = await collector.collectJobs();
+    let collectionResult;
+
+    try {
+        collectionResult = await collector.collectJobs();
+    } catch (error) {
+        console.error(
+            "Collection failed. Skipping job closure.",
+            error
+        );
+        throw error;
+    }
+
+    const jobs = collectionResult.jobs;
+    const snapshotComplete =
+        collectionResult.isComplete === true;
 
     let newJobs = 0;
     let updatedJobs = 0;
@@ -33,11 +47,18 @@ export async function runCollector(
         }
     }
 
-    const closedJobs =
-        await markMissingJobsAsClosed(
+    const closedJobs = snapshotComplete
+        ? await markMissingJobsAsClosed(
             companyId,
             collectionStartedAt
-        );
+        )
+        : 0;
+
+    console.log(
+        snapshotComplete
+            ? "Collection completed successfully."
+            : "Collection incomplete."
+    );
 
     console.log(
         `Total jobs fetched: ${jobs.length}`
@@ -50,6 +71,16 @@ export async function runCollector(
     console.log(
         `Existing jobs updated: ${updatedJobs}`
     );
+
+    console.log(
+        `Snapshot complete: ${snapshotComplete}`
+    );
+
+    if (!snapshotComplete) {
+        console.log(
+            "Skipping job closure to protect existing jobs."
+        );
+    }
 
     console.log(
         `Jobs marked as closed: ${closedJobs}`

@@ -3,11 +3,12 @@ import GreenhouseCollector from "./greenhouseCollector";
 async function test() {
     const collector = new GreenhouseCollector("6sense");
 
-    const jobs = await collector.collectJobs();
+    const result = await collector.collectJobs();
 
-    console.log(`Total jobs fetched: ${jobs.length}`);
+    console.log(`Total jobs fetched: ${result.jobs.length}`);
+    console.log(`Snapshot complete: ${result.isComplete}`);
 
-    console.log(jobs.slice(0, 3));
+    console.log(result.jobs.slice(0, 3));
 }
 
 test();

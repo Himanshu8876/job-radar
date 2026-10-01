@@ -17,10 +17,13 @@ export async function runDailyMatching(): Promise<void> {
         const newMatches = matches.jobs.filter((job) => job.is_new);
 
         if (newMatches.length > 0) {
-            await sendEmail(
-                user.email,
-                `Job Radar - ${newMatches.length} new matching jobs`,
-                `
+            let emailSent = false;
+
+            try {
+                await sendEmail(
+                    user.email,
+                    `Job Radar - ${newMatches.length} new matching jobs`,
+                    `
                     <h1>Daily Job Radar</h1>
 
                     <p>
@@ -75,12 +78,21 @@ export async function runDailyMatching(): Promise<void> {
                         </div>
                     `).join("")}
                 `
-            );
+                );
+                emailSent = true;
+            } catch (error) {
+                console.error(
+                    `Daily match email failed for user ${user.id}:`,
+                    error
+                );
+            }
 
-            await markJobsAsEmailed(
-                newMatches.map((job) => Number(job.job_id)),
-                user.id
-            );
+            if (emailSent) {
+                await markJobsAsEmailed(
+                    newMatches.map((job) => Number(job.job_id)),
+                    user.id
+                );
+            }
         }
 
         console.log(`Daily matches generated for user ${user.id}:`, matchResult);

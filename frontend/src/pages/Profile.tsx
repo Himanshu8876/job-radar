@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
+import { Plus, X } from "lucide-react";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
 import { useAuth } from "../context/AuthContext";
@@ -68,6 +69,14 @@ interface ResumeReview {
   experienceItems: ResumeExperienceItem[];
 }
 
+const DEFAULT_PREFERRED_LOCATIONS = [
+  "Bangalore",
+  "Hyderabad",
+  "Pune",
+  "Mumbai",
+  "Delhi NCR",
+];
+
 function Profile() {
   const { user, loading: authLoading } = useAuth();
   const { showToast } = useToast();
@@ -98,6 +107,7 @@ function Profile() {
   const [graduationYear, setGraduationYear] = useState("");
   const [experienceYears, setExperienceYears] = useState("");
   const [preferredLocations, setPreferredLocations] = useState("");
+  const [newPreferredLocation, setNewPreferredLocation] = useState("");
   const [preferredRoles, setPreferredRoles] = useState("");
 
   useEffect(() => {
@@ -136,8 +146,16 @@ function Profile() {
           String(data.experience_years ?? 0)
         );
 
+        const savedLocations = data.preferred_locations === null
+          ? null
+          : data.preferred_locations
+              .split(",")
+              .map((location) => location.trim())
+              .filter(Boolean);
         setPreferredLocations(
-          data.preferred_locations || ""
+          savedLocations === null
+            ? DEFAULT_PREFERRED_LOCATIONS.join(", ")
+            : savedLocations.join(", ")
         );
 
         setPreferredRoles(
@@ -239,8 +257,10 @@ function Profile() {
       console.error("Resume extraction failed:", error);
 
       showToast(
-        error.response?.data?.message ||
-          "Failed to extract resume information.",
+        !error.response || error.response.status >= 500
+          ? "AI service is not available right now. Please try again or add your details manually."
+          : error.response.data?.message ||
+              "Failed to extract resume information.",
         "error"
       );
     } finally {
@@ -494,6 +514,42 @@ function Profile() {
     }
   }
 
+  function handleAddPreferredLocation() {
+    const location = newPreferredLocation.trim();
+
+    if (!location) return;
+
+    const locations = preferredLocations
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (
+      locations.some(
+        (item) => item.toLowerCase() === location.toLowerCase()
+      )
+    ) {
+      setNewPreferredLocation("");
+      return;
+    }
+
+    setPreferredLocations([...locations, location].join(", "));
+    setNewPreferredLocation("");
+  }
+
+  function handleRemovePreferredLocation(locationToRemove: string) {
+    const locations = preferredLocations
+      .split(",")
+      .map((location) => location.trim())
+      .filter(
+        (location) =>
+          location &&
+          location.toLowerCase() !== locationToRemove.toLowerCase()
+      );
+
+    setPreferredLocations(locations.join(", "));
+  }
+
   async function handleAddSkill(skill: Skill) {
     if (!user) return;
 
@@ -588,6 +644,11 @@ function Profile() {
 
     return !alreadyAdded && matchesSearch;
   });
+
+  const preferredLocationList = preferredLocations
+    .split(",")
+    .map((location) => location.trim())
+    .filter(Boolean);
 
   if (authLoading || loading) {
     return (
@@ -1083,20 +1144,50 @@ function Profile() {
               Preferred locations
             </label>
 
-            <textarea
-              id="preferred-locations"
-              value={preferredLocations}
-              onChange={(event) =>
-                setPreferredLocations(event.target.value)
-              }
-              rows={3}
-              placeholder="Bangalore, Hyderabad, Pune, Mumbai, Delhi NCR"
-              className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-gray-400 focus:bg-white focus:ring-2 focus:ring-gray-100"
-            />
+            <div className="flex flex-wrap gap-2">
+              {preferredLocationList.map((location) => (
+                <span
+                  key={location.toLowerCase()}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 py-1 pl-3 pr-1 text-sm text-gray-700"
+                >
+                  {location}
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePreferredLocation(location)}
+                    aria-label={`Remove ${location}`}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-200 hover:text-gray-900"
+                  >
+                    <X aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                </span>
+              ))}
+            </div>
 
-            <p className="mt-1.5 text-xs text-gray-400">
-              Separate multiple locations with commas.
-            </p>
+            <div className="mt-3 flex gap-2">
+              <input
+                id="preferred-locations"
+                type="text"
+                value={newPreferredLocation}
+                onChange={(event) => setNewPreferredLocation(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleAddPreferredLocation();
+                  }
+                }}
+                placeholder="Add a location"
+                className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-gray-400 focus:bg-white focus:ring-2 focus:ring-gray-100"
+              />
+              <button
+                type="button"
+                onClick={handleAddPreferredLocation}
+                disabled={!newPreferredLocation.trim()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                Add
+              </button>
+            </div>
           </div>
 
           {/* Roles */}

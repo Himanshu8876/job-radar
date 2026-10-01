@@ -1,5 +1,5 @@
 import { NormalizedJob } from "../collectors/types";
-import { JobCollector } from "../collectors/jobCollector";
+import { JobCollectionResult, JobCollector } from "../collectors/jobCollector";
 import { extractExperience } from "../collectors/experienceUtils";
 
 interface AshbyJob {
@@ -16,6 +16,7 @@ interface AshbyJob {
 }
 
 interface AshbyResponse {
+    apiVersion?: string;
     jobs: AshbyJob[];
 }
 
@@ -28,7 +29,7 @@ export default class AshbyCollector
         this.boardName = boardName;
     }
 
-    async collectJobs(): Promise<NormalizedJob[]> {
+    async collectJobs(): Promise<JobCollectionResult> {
         const url =
             `https://api.ashbyhq.com/posting-api/job-board/` +
             `${this.boardName}`;
@@ -50,11 +51,25 @@ export default class AshbyCollector
         const data =
             (await response.json()) as AshbyResponse;
 
+        if (!Array.isArray(data.jobs)) {
+            throw new Error(
+                "Ashby API returned an invalid jobs list"
+            );
+        }
+
+        const isComplete = data.apiVersion === "1";
+
+        if (!isComplete) {
+            console.error(
+                "Ashby snapshot is incomplete: missing or unsupported API version"
+            );
+        }
+
         console.log(
             `Total jobs fetched: ${data.jobs.length}`
         );
 
-        return data.jobs.map((job) => {
+        const jobs = data.jobs.map((job) => {
             const description =
                 job.descriptionHtml || "";
 
@@ -102,5 +117,10 @@ export default class AshbyCollector
                     job.jobUrl,
             };
         });
+
+        return {
+            jobs,
+            isComplete,
+        };
     }
 }

@@ -4,16 +4,15 @@ async function test() {
     const collector =
         new LeverCollector("drivetrain");
 
-    const jobs =
+    const result =
         await collector.collectJobs();
 
     console.log(
         "\nFirst 3 jobs:"
     );
 
-    console.log(
-        jobs.slice(0, 3)
-    );
+    console.log(`Snapshot complete: ${result.isComplete}`);
+    console.log(result.jobs.slice(0, 3));
 }
 
 test().catch((error) => {

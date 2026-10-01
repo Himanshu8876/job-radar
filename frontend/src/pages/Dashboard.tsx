@@ -15,9 +15,15 @@ interface MatchJob {
 }
 
 interface DashboardStats {
-  jobs: number;
-  matches: number;
-  applications: number;
+  jobs: number | null;
+  matches: number | null;
+  applications: number | null;
+}
+
+interface DashboardErrors {
+  jobs: boolean;
+  matches: boolean;
+  applications: boolean;
 }
 
 function Dashboard() {
@@ -26,9 +32,15 @@ function Dashboard() {
   const navigate = useNavigate();
 
   const [stats, setStats] = useState<DashboardStats>({
-    jobs: 0,
-    matches: 0,
-    applications: 0,
+    jobs: null,
+    matches: null,
+    applications: null,
+  });
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardErrors, setDashboardErrors] = useState<DashboardErrors>({
+    jobs: false,
+    matches: false,
+    applications: false,
   });
 
   const [recentMatches, setRecentMatches] = useState<MatchJob[]>([]);
@@ -36,36 +48,103 @@ function Dashboard() {
     useState<MatchJob | null>(null);
 
   useEffect(() => {
-  if (authLoading || !user) {
-    return;
-  }
+    if (authLoading) return;
 
-  const userId = user.id;
+    if (!user) {
+      setDashboardLoading(false);
+      return;
+    }
 
-  async function fetchDashboardData() {
-    try {
-      const [jobsResponse, matchesResponse, applicationsResponse] =
-        await Promise.all([
+    let isCurrent = true;
+    const userId = user.id;
+
+    async function fetchDashboardData() {
+      setDashboardLoading(true);
+      setDashboardErrors({
+        jobs: false,
+        matches: false,
+        applications: false,
+      });
+
+      try {
+        const [jobsResult, matchesResult, applicationsResult] =
+          await Promise.allSettled([
           api.get("/jobs?limit=1"),
           api.get(`/jobs/matches/${userId}`),
           api.get("/applications"),
         ]);
 
-      setStats({
-        jobs: jobsResponse.data.pagination.total,
-        matches: matchesResponse.data.jobs.length,
-        applications: applicationsResponse.data.applications.length,
-      });
+        if (!isCurrent) return;
 
-      setRecentMatches(matchesResponse.data.jobs.slice(0, 5));
-    } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
-      showToast("Unable to load dashboard data.", "error");
+        const jobsFailed = jobsResult.status === "rejected";
+        const matchesFailed = matchesResult.status === "rejected";
+        const applicationsFailed = applicationsResult.status === "rejected";
+
+        if (jobsFailed) {
+          console.error("Failed to fetch dashboard jobs:", jobsResult.reason);
+        }
+        if (matchesFailed) {
+          console.error("Failed to fetch dashboard matches:", matchesResult.reason);
+        }
+        if (applicationsFailed) {
+          console.error(
+            "Failed to fetch dashboard applications:",
+            applicationsResult.reason
+          );
+        }
+
+        setStats({
+          jobs:
+            jobsResult.status === "fulfilled"
+              ? jobsResult.value.data.pagination.total
+              : null,
+          matches:
+            matchesResult.status === "fulfilled"
+              ? matchesResult.value.data.jobs.length
+              : null,
+          applications:
+            applicationsResult.status === "fulfilled"
+              ? applicationsResult.value.data.applications.length
+              : null,
+        });
+
+        setRecentMatches(
+          matchesResult.status === "fulfilled"
+            ? matchesResult.value.data.jobs.slice(0, 5)
+            : []
+        );
+        setDashboardErrors({
+          jobs: jobsFailed,
+          matches: matchesFailed,
+          applications: applicationsFailed,
+        });
+
+        if (jobsFailed || matchesFailed || applicationsFailed) {
+          showToast("Some dashboard data couldn't be loaded.", "error");
+        }
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+        if (isCurrent) {
+          setDashboardErrors({
+            jobs: true,
+            matches: true,
+            applications: true,
+          });
+          showToast("Unable to load dashboard data.", "error");
+        }
+      } finally {
+        if (isCurrent) {
+          setDashboardLoading(false);
+        }
+      }
     }
-  }
 
-  fetchDashboardData();
-}, [user, authLoading, showToast]);
+    void fetchDashboardData();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [user, authLoading, showToast]);
 
   async function handleMarkAsApplied() {
     if (!pendingApplicationJob || !user) {
@@ -89,7 +168,8 @@ function Dashboard() {
       );
       setStats((current) => ({
         ...current,
-        applications: current.applications + 1,
+        applications:
+          current.applications === null ? null : current.applications + 1,
       }));
       showToast("Application marked as applied.", "success");
     } catch (error: any) {
@@ -133,56 +213,103 @@ function Dashboard() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <div className="rounded-xl border bg-white p-6">
-          <p className="text-sm text-gray-500">Jobs</p>
-          <p className="mt-2 text-3xl font-bold">{stats.jobs}</p>
-        </div>
-
-        <div className="rounded-xl border bg-white p-6">
-          <p className="text-sm text-gray-500">Matches</p>
-          <p className="mt-2 text-3xl font-bold">{stats.matches}</p>
-        </div>
-
-        <div className="rounded-xl border bg-white p-6">
-          <p className="text-sm text-gray-500">Applications</p>
-          <p className="mt-2 text-3xl font-bold">
-            {stats.applications}
-          </p>
-        </div>
-      </div>
-
-      <section className="mt-8">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-900">
-            Recent Matches
-          </h2>
-
-          <p className="mt-1 text-sm text-gray-500">
-            Your latest matching job opportunities.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {recentMatches.length === 0 ? (
-            <div className="rounded-xl border bg-white p-6 text-gray-500">
-              No matching jobs found.
-            </div>
-          ) : (
-            recentMatches.map((job) => (
+      {dashboardLoading ? (
+        <>
+          <div className="grid gap-6 md:grid-cols-3" aria-label="Loading dashboard data">
+            {["jobs", "matches", "applications"].map((item) => (
               <div
-                key={job.job_id}
-                role="link"
-                tabIndex={0}
-                onClick={() => navigate(`/jobs/${job.job_id}`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    navigate(`/jobs/${job.job_id}`);
-                  }
-                }}
-                className="cursor-pointer rounded-xl border bg-white p-5 transition hover:border-gray-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+                key={item}
+                className="rounded-xl border bg-white p-6"
               >
+                <div className="h-4 w-24 animate-pulse rounded bg-gray-200" />
+                <div className="mt-3 h-9 w-16 animate-pulse rounded bg-gray-200" />
+              </div>
+            ))}
+          </div>
+
+          <section className="mt-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Recent Matches</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Your latest matching job opportunities.
+              </p>
+            </div>
+            <div className="space-y-4" aria-label="Loading recent matches">
+              {["first", "second"].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-xl border bg-white p-5"
+                >
+                  <div className="h-5 w-2/3 animate-pulse rounded bg-gray-200" />
+                  <div className="mt-3 h-4 w-1/3 animate-pulse rounded bg-gray-200" />
+                  <div className="mt-5 h-8 w-28 animate-pulse rounded bg-gray-200" />
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="rounded-xl border bg-white p-6">
+              <p className="text-sm text-gray-500">Jobs</p>
+              <p className="mt-2 text-3xl font-bold">
+                {dashboardErrors.jobs ? "Unable to load" : stats.jobs}
+              </p>
+            </div>
+
+            <div className="rounded-xl border bg-white p-6">
+              <p className="text-sm text-gray-500">Matches</p>
+              <p className="mt-2 text-3xl font-bold">
+                {dashboardErrors.matches ? "Unable to load" : stats.matches}
+              </p>
+            </div>
+
+            <div className="rounded-xl border bg-white p-6">
+              <p className="text-sm text-gray-500">Applications</p>
+              <p className="mt-2 text-3xl font-bold">
+                {dashboardErrors.applications
+                  ? "Unable to load"
+                  : stats.applications}
+              </p>
+            </div>
+          </div>
+
+          <section className="mt-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-gray-900">
+                Recent Matches
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Your latest matching job opportunities.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {dashboardErrors.matches ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+                  Unable to load recent matches. Please try again later.
+                </div>
+              ) : recentMatches.length === 0 ? (
+                <div className="rounded-xl border bg-white p-6 text-gray-500">
+                  No matching jobs found.
+                </div>
+              ) : (
+                recentMatches.map((job) => (
+                  <div
+                    key={job.job_id}
+                    role="link"
+                    tabIndex={0}
+                    onClick={() => navigate(`/jobs/${job.job_id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        navigate(`/jobs/${job.job_id}`);
+                      }
+                    }}
+                    className="cursor-pointer rounded-xl border bg-white p-5 transition hover:border-gray-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2"
+                  >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="font-semibold text-gray-900">
@@ -237,11 +364,13 @@ function Dashboard() {
                     ✓ I Applied
                   </button>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </>
+      )}
 
       {pendingApplicationJob && (
         <div

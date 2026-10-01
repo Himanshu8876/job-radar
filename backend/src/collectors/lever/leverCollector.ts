@@ -1,6 +1,10 @@
 import { NormalizedJob } from "../types";
-import { JobCollector } from "../jobCollector";
+import { JobCollectionResult, JobCollector } from "../jobCollector";
 import { extractExperience } from "../experienceUtils";
+
+const LEVER_PAGE_SIZE = 100;
+const LEVER_REQUEST_TIMEOUT_MS = 30_000;
+const LEVER_MAX_PAGES = 102;
 
 interface LeverJob {
     id: string;
@@ -31,6 +35,20 @@ interface LeverJob {
 
 interface LeverResponse extends Array<LeverJob> {}
 
+function isLeverJob(value: unknown): value is LeverJob {
+    if (!value || typeof value !== "object") {
+        return false;
+    }
+
+    const job = value as Partial<LeverJob>;
+
+    return typeof job.id === "string" &&
+        job.id.length > 0 &&
+        typeof job.text === "string" &&
+        (typeof job.hostedUrl === "string" ||
+            typeof job.applyUrl === "string");
+}
+
 export default class LeverCollector
     implements JobCollector
 {
@@ -40,89 +58,172 @@ export default class LeverCollector
         this.companySlug = companySlug;
     }
 
-    async collectJobs(): Promise<NormalizedJob[]> {
+    async collectJobs(): Promise<JobCollectionResult> {
         const url =
             `https://api.lever.co/v0/postings/` +
-            `${this.companySlug}?mode=json`;
+            `${this.companySlug}`;
 
         console.log(
             `Fetching jobs from: ${url}`
         );
 
-        const response =
-            await fetch(url);
+        const jobs: NormalizedJob[] = [];
+        const seenIds = new Set<string>();
+        let skip = 0;
+        let consecutiveEmptyPages = 0;
+        let pageNumber = 0;
 
-        if (!response.ok) {
-            throw new Error(
-                `Lever API request failed: ` +
-                `${response.status} ${response.statusText}`
+        while (consecutiveEmptyPages < 2) {
+            if (pageNumber >= LEVER_MAX_PAGES) {
+                console.error(
+                    `Lever pagination safety limit reached for ${this.companySlug} after ${pageNumber} pages; snapshot is incomplete`
+                );
+                return { jobs, isComplete: false };
+            }
+
+            pageNumber++;
+            const pageUrl = new URL(url);
+            pageUrl.searchParams.set("mode", "json");
+            pageUrl.searchParams.set("skip", String(skip));
+            pageUrl.searchParams.set(
+                "limit",
+                String(LEVER_PAGE_SIZE)
             );
-        }
 
-        const data =
-            (await response.json()) as LeverResponse;
+            console.log(
+                `Fetching Lever page ${pageNumber} for ${this.companySlug} (skip=${skip}, limit=${LEVER_PAGE_SIZE})`
+            );
 
-        console.log(
-            `Total jobs fetched: ${data.length}`
-        );
+            let data: unknown;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(
+                () => controller.abort(),
+                LEVER_REQUEST_TIMEOUT_MS
+            );
 
-        return data.map((job) => {
-            const description = [
-                job.descriptionPlain ||
-                job.description ||
-                "",
+            try {
+                const response = await fetch(pageUrl, {
+                    signal: controller.signal,
+                });
 
-                ...(job.lists || []).map((list) => {
-                    return `${list.text}\n${list.content}`;
-                })
-            ].join("\n\n");
+                if (!response.ok) {
+                    throw new Error(
+                        `Lever API request failed: ` +
+                        `${response.status} ${response.statusText}`
+                    );
+                }
 
-            const experience =
-                extractExperience(description);
+                data = await response.json();
+            } catch (error) {
+                if (controller.signal.aborted) {
+                    const timeoutError = new Error(
+                        `Lever request timed out after ${LEVER_REQUEST_TIMEOUT_MS}ms for ${this.companySlug} page ${pageNumber}`
+                    );
+                    console.error(timeoutError.message);
+                    throw timeoutError;
+                }
 
-            return {
-                source: "lever",
+                console.error(
+                    "Lever collection stopped before the snapshot was complete:",
+                    error
+                );
+                return { jobs, isComplete: false };
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
-                sourceJobId: job.id,
+            if (!Array.isArray(data)) {
+                console.error(
+                    "Lever API returned an invalid postings page"
+                );
+                return { jobs, isComplete: false };
+            }
 
-                title: job.text,
+            const page = data as LeverResponse;
 
-                description,
+            if (!page.every(isLeverJob)) {
+                console.error(
+                    "Lever API returned a malformed posting; snapshot is incomplete"
+                );
+                return { jobs, isComplete: false };
+            }
 
-                location:
-                    job.categories?.location,
+            if (page.length === 0) {
+                consecutiveEmptyPages++;
+                continue;
+            }
 
-                country:
-                    job.country,
+            consecutiveEmptyPages = 0;
+            const normalizedPage: NormalizedJob[] = [];
+            let hasDuplicate = false;
 
-                employmentType:
-                    job.categories?.commitment,
+            for (const job of page) {
+                if (seenIds.has(job.id)) {
+                    hasDuplicate = true;
+                    continue;
+                }
 
-                workplaceType:
-                    job.workplaceType ||
-                    (
-                        `${job.categories?.location || ""} ${job.descriptionPlain || ""}`
-                            .toLowerCase()
-                            .includes("remote")
-                            ? "Remote"
-                            : undefined
-                    ),
+                seenIds.add(job.id);
 
-                experienceMin:
-                    experience.min,
+                const description = [
+                    job.descriptionPlain ||
+                    job.description ||
+                    "",
 
-                experienceMax:
-                    experience.max,
+                    ...(job.lists || []).map((list) => {
+                        return `${list.text}\n${list.content}`;
+                    })
+                ].join("\n\n");
 
-                postedAt:
-                    job.createdAt
+                const experience =
+                    extractExperience(description);
+
+                normalizedPage.push({
+                    source: "lever",
+                    sourceJobId: job.id,
+                    title: job.text,
+                    description,
+                    location: job.categories?.location,
+                    country: job.country,
+                    employmentType: job.categories?.commitment,
+                    workplaceType:
+                        job.workplaceType ||
+                        (
+                            `${job.categories?.location || ""} ${job.descriptionPlain || ""}`
+                                .toLowerCase()
+                                .includes("remote")
+                                ? "Remote"
+                                : undefined
+                        ),
+                    experienceMin: experience.min,
+                    experienceMax: experience.max,
+                    postedAt: job.createdAt
                         ? new Date(job.createdAt)
                         : undefined,
+                    applicationUrl:
+                        job.applyUrl || job.hostedUrl,
+                });
+            }
 
-                applicationUrl:
-                    job.applyUrl ||
-                    job.hostedUrl,
-            };
-        });
+            jobs.push(...normalizedPage);
+
+            if (hasDuplicate) {
+                console.error(
+                    "Lever returned duplicate postings across pages; snapshot is incomplete"
+                );
+                return { jobs, isComplete: false };
+            }
+
+            skip += page.length;
+        }
+
+        console.log(
+            `Total jobs fetched: ${jobs.length}`
+        );
+
+        return {
+            jobs,
+            isComplete: true,
+        };
     }
 }

@@ -1,4 +1,4 @@
-import { JobCollector } from "../jobCollector";
+import { JobCollectionResult, JobCollector } from "../jobCollector";
 import { NormalizedJob } from "../types";
 import { extractExperience } from "../experienceUtils";
 
@@ -169,7 +169,7 @@ class GreenhouseCollector implements JobCollector {
         this.boardToken = boardToken;
     }
 
-    async collectJobs(): Promise<NormalizedJob[]> {
+    async collectJobs(): Promise<JobCollectionResult> {
         const url =
             `https://boards-api.greenhouse.io/v1/boards/` +
             `${this.boardToken}/jobs?content=true`;
@@ -186,6 +186,24 @@ class GreenhouseCollector implements JobCollector {
 
         const data =
             (await response.json()) as GreenhouseResponse;
+
+        if (!Array.isArray(data.jobs)) {
+            throw new Error(
+                "Greenhouse API returned an invalid jobs list"
+            );
+        }
+
+        const isComplete =
+            Number.isInteger(data.meta?.total) &&
+            data.meta.total >= 0 &&
+            data.jobs.length === data.meta.total;
+
+        if (!isComplete) {
+            console.error(
+                "Greenhouse snapshot is incomplete:",
+                `received ${data.jobs.length} jobs, expected ${data.meta?.total}`
+            );
+        }
 
         const normalizedJobs: NormalizedJob[] =
             data.jobs.map((job) => {
@@ -238,7 +256,10 @@ class GreenhouseCollector implements JobCollector {
                 };
             });
 
-        return normalizedJobs;
+        return {
+            jobs: normalizedJobs,
+            isComplete,
+        };
     }
 }
 

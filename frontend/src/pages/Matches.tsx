@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
 import { useAuth } from "../context/AuthContext";
+import { useMatchGeneration } from "../context/MatchGenerationContext";
 
 interface Match {
   job_id: number;
@@ -25,10 +26,15 @@ interface Match {
 function Matches() {
   const { showToast } = useToast();
   const { user, loading: authLoading } = useAuth();
+  const {
+    job: matchGenerationJob,
+    isGenerating,
+    isRestoring,
+    startMatchGeneration,
+  } = useMatchGeneration();
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [showGenerateConfirmation, setShowGenerateConfirmation] =
     useState(false);
   const [pendingApplicationMatch, setPendingApplicationMatch] =
@@ -54,12 +60,18 @@ function Matches() {
   }
 
   useEffect(() => {
-    if (authLoading || !user) {
+    if (authLoading || isRestoring || !user) {
       return;
     }
 
     fetchMatches();
-  }, [user, authLoading]);
+  }, [user, authLoading, isRestoring]);
+
+  useEffect(() => {
+    if (matchGenerationJob?.status === "completed") {
+      void fetchMatches();
+    }
+  }, [matchGenerationJob?.jobId, matchGenerationJob?.status]);
 
   async function handleGenerateMatches() {
     if (!user) {
@@ -77,18 +89,21 @@ function Matches() {
     setShowGenerateConfirmation(false);
 
     try {
-      setGenerating(true);
-
-      await api.post(`/profiles/${user.id}/generate-matches`);
-
-      showToast("Matches generated successfully.", "success");
-
-      await fetchMatches();
+      const job = await startMatchGeneration();
+      showToast(
+        job.status === "running"
+          ? "Match generation is already running. You can keep browsing while it finishes."
+          : job.status === "queued"
+            ? "Match generation is queued. You can keep browsing while it runs."
+            : "Match generation started.",
+        "info"
+      );
     } catch (error) {
       console.error("Failed to generate matches:", error);
-      showToast("Unable to generate matches.", "error");
-    } finally {
-      setGenerating(false);
+      showToast(
+        "Unable to start match generation. Please try again.",
+        "error"
+      );
     }
   }
 
@@ -169,13 +184,35 @@ function Matches() {
           <button
             type="button"
             onClick={handleGenerateMatches}
-            disabled={generating}
+            disabled={isGenerating || isRestoring}
             className="shrink-0 rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {generating ? "Generating..." : "Generate Matches"}
+            {isGenerating ? "Generating..." : "Generate Matches"}
           </button>
         </div>
       </div>
+
+      {matchGenerationJob && (
+        <div
+          role={matchGenerationJob.status === "failed" ? "alert" : "status"}
+          className={`mb-6 rounded-xl border px-4 py-3 text-sm ${
+            matchGenerationJob.status === "failed"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : matchGenerationJob.status === "completed"
+                ? "border-green-200 bg-green-50 text-green-800"
+                : "border-blue-200 bg-blue-50 text-blue-800"
+          }`}
+        >
+          {matchGenerationJob.status === "queued" &&
+            "Match generation is queued."}
+          {matchGenerationJob.status === "running" &&
+            "Match generation is running in the background."}
+          {matchGenerationJob.status === "completed" &&
+            "Match generation completed."}
+          {matchGenerationJob.status === "failed" &&
+            (matchGenerationJob.error || "Match generation failed. Please try again.")}
+        </div>
+      )}
 
       {/* ================================
           LOADING
@@ -220,10 +257,10 @@ function Matches() {
             <button
               type="button"
               onClick={handleGenerateMatches}
-              disabled={generating}
+              disabled={isGenerating || isRestoring}
               className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {generating ? "Generating..." : "Generate Matches"}
+              {isGenerating ? "Generating..." : "Generate Matches"}
             </button>
 
             <Link
