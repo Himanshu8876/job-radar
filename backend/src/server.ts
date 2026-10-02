@@ -19,6 +19,7 @@ import {
 } from "./services/matchingService";
 import {
     runDailyMatching,
+    runDailyPipeline,
     startJobScheduler,
 } from "./scheduler/jobScheduler";
 import {
@@ -270,8 +271,7 @@ app.get(
 
 app.post("/daily-run", async (req, res) => {
     try {
-        await runAllCollectors();
-        await runDailyMatching();
+        await runDailyPipeline("manual");
 
         res.json({
             message: "Daily run completed",
