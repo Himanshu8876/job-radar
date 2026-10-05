@@ -37,7 +37,8 @@ async function processCompany(
 
         const stats = await runCollector(
             company.id,
-            collector
+            collector,
+            company.name
         );
 
         console.log(
