@@ -1,12 +1,13 @@
 import { JobCollector } from "./jobCollector";
 import {
-    saveJob,
+    bulkSaveJobs,
     markMissingJobsAsClosed
 } from "../services/jobService";
 
 export async function runCollector(
     companyId: number,
-    collector: JobCollector
+    collector: JobCollector,
+    companyName = String(companyId)
 ): Promise<{
     totalJobs: number;
     newJobs: number;
@@ -31,28 +32,54 @@ export async function runCollector(
     const snapshotComplete =
         collectionResult.isComplete === true;
 
-    let newJobs = 0;
-    let updatedJobs = 0;
-
-    for (const job of jobs) {
-        const result = await saveJob(
-            companyId,
-            job
+    if (!snapshotComplete) {
+        console.log(
+            `Collector returned for company ${companyName}.\nSnapshot complete: false\nJob closure: SKIPPED`
         );
 
-        if (result.isNew) {
-            newJobs++;
-        } else {
-            updatedJobs++;
+        if (jobs.length === 0) {
+            console.log(
+                `✅ runCollector RESOLVING for company: ${companyName}`
+            );
+            return {
+                totalJobs: 0,
+                newJobs: 0,
+                updatedJobs: 0,
+                closedJobs: 0
+            };
         }
     }
 
-    const closedJobs = snapshotComplete
-        ? await markMissingJobsAsClosed(
+    const saveStartedAt = Date.now();
+    console.log(
+        `[PERF DEBUG] Starting bulk save of ${jobs.length} jobs`
+    );
+
+    const saveResult = await bulkSaveJobs(companyId, jobs);
+    const newJobs = saveResult.newJobs;
+    const updatedJobs = saveResult.updatedJobs;
+    const elapsedSeconds =
+        ((Date.now() - saveStartedAt) / 1000).toFixed(1);
+    console.log(
+        `[PERF DEBUG] Bulk save completed in ${elapsedSeconds} seconds`
+    );
+
+    let closedJobs = 0;
+    if (snapshotComplete) {
+        console.log(
+            `[JOB CLOSURE DEBUG]\nCompany: ${companyName}\nCompany ID: ${companyId}\ncollectionStartedAt: ${collectionStartedAt.toISOString()}\njobs fetched: ${jobs.length}\nsnapshotComplete: ${snapshotComplete}`
+        );
+        console.log(
+            `[PERF DEBUG] Before markMissingJobsAsClosed for ${companyName}`
+        );
+        closedJobs = await markMissingJobsAsClosed(
             companyId,
             collectionStartedAt
-        )
-        : 0;
+        );
+        console.log(
+            `[PERF DEBUG] After markMissingJobsAsClosed for ${companyName}`
+        );
+    }
 
     console.log(
         snapshotComplete
@@ -87,7 +114,7 @@ export async function runCollector(
     );
 
     return {
-        totalJobs: jobs.length,
+        totalJobs: saveResult.totalJobs,
         newJobs,
         updatedJobs,
         closedJobs

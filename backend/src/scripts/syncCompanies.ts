@@ -24,7 +24,7 @@ async function syncCompanies() {
     try {
         const csvPath = path.join(
             __dirname,
-            "../data/companies.csv"
+            "../../src/data/companies.csv"
         );
 
         const csvContent = fs.readFileSync(

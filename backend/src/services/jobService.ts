@@ -1,6 +1,11 @@
 import pool from "../config/db";
 import { NormalizedJob } from "../collectors/types";
-import { extractJobSkills, saveJobSkills } from "./skillService";
+import {
+    bulkSaveJobSkills,
+    extractJobSkills,
+    getAllSkills,
+    saveJobSkills,
+} from "./skillService";
 
 interface SaveJobResult {
     id: number;
@@ -160,6 +165,209 @@ export async function saveJob(
     };
 }
 
+interface BulkSaveJobsResult {
+    totalJobs: number;
+    newJobs: number;
+    updatedJobs: number;
+}
+
+const BULK_JOB_CHUNK_SIZE = 100;
+
+function getJobKey(source: string, sourceJobId: string): string {
+    return JSON.stringify([source, sourceJobId]);
+}
+
+export async function bulkSaveJobs(
+    companyId: number,
+    jobs: NormalizedJob[]
+): Promise<BulkSaveJobsResult> {
+    const deduplicatedJobs = new Map<string, NormalizedJob>();
+    for (const job of jobs) {
+        deduplicatedJobs.set(
+            getJobKey(job.source, job.sourceJobId),
+            job
+        );
+    }
+
+    const uniqueJobs = [...deduplicatedJobs.values()];
+    if (uniqueJobs.length === 0) {
+        return {
+            totalJobs: 0,
+            newJobs: 0,
+            updatedJobs: 0,
+        };
+    }
+
+    const allSkills = await getAllSkills();
+    const extractedSkills = await Promise.all(
+        uniqueJobs.map(async (job) => ({
+            job,
+            skills: await extractJobSkills(
+                job.description,
+                allSkills
+            ),
+        }))
+    );
+
+    const existingResult = await pool.query<{
+        source: string;
+        source_job_id: string;
+    }>(
+        `SELECT source, source_job_id
+         FROM jobs
+         WHERE (source, source_job_id) IN (
+            SELECT incoming.source, incoming.source_job_id
+            FROM UNNEST($1::text[], $2::text[])
+                AS incoming(source, source_job_id)
+         )`,
+        [
+            uniqueJobs.map((job) => job.source),
+            uniqueJobs.map((job) => job.sourceJobId),
+        ]
+    );
+    const existingKeys = new Set(
+        existingResult.rows.map((row) =>
+            getJobKey(row.source, row.source_job_id)
+        )
+    );
+
+    let newJobs = 0;
+    let updatedJobs = 0;
+
+    for (
+        let offset = 0;
+        offset < extractedSkills.length;
+        offset += BULK_JOB_CHUNK_SIZE
+    ) {
+        const chunk = extractedSkills.slice(
+            offset,
+            offset + BULK_JOB_CHUNK_SIZE
+        );
+        const client = await pool.connect();
+        let releaseError: Error | undefined;
+
+        try {
+            await client.query("BEGIN");
+
+            const values: unknown[] = [];
+            const valueRows = chunk.map(({ job }, index) => {
+                const parameterIndex = index * 14;
+                values.push(
+                    companyId,
+                    job.source,
+                    job.sourceJobId,
+                    job.title,
+                    job.description,
+                    job.location ?? null,
+                    job.country ?? null,
+                    job.employmentType ?? null,
+                    job.workplaceType ?? null,
+                    job.experienceMin ?? null,
+                    job.experienceMax ?? null,
+                    job.postedAt ?? null,
+                    job.updatedAt ?? null,
+                    job.applicationUrl
+                );
+                return `(${Array.from(
+                    { length: 14 },
+                    (_, valueIndex) =>
+                        `$${parameterIndex + valueIndex + 1}`
+                ).join(", ")}, CURRENT_TIMESTAMP, NULL)`;
+            });
+
+            const upsertResult = await client.query(
+                `INSERT INTO jobs (
+                    company_id,
+                    source,
+                    source_job_id,
+                    title,
+                    description,
+                    location,
+                    country,
+                    employment_type,
+                    workplace_type,
+                    experience_min,
+                    experience_max,
+                    posted_at,
+                    updated_at,
+                    application_url,
+                    last_seen_at,
+                    closed_at
+                )
+                VALUES ${valueRows.join(", ")}
+                ON CONFLICT (source, source_job_id)
+                DO UPDATE SET
+                    company_id = EXCLUDED.company_id,
+                    title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    location = EXCLUDED.location,
+                    country = EXCLUDED.country,
+                    employment_type = EXCLUDED.employment_type,
+                    workplace_type = EXCLUDED.workplace_type,
+                    experience_min = EXCLUDED.experience_min,
+                    experience_max = EXCLUDED.experience_max,
+                    posted_at = EXCLUDED.posted_at,
+                    updated_at = EXCLUDED.updated_at,
+                    application_url = EXCLUDED.application_url,
+                    last_seen_at = CURRENT_TIMESTAMP,
+                    closed_at = NULL
+                RETURNING id, source, source_job_id`,
+                values
+            );
+
+            const chunkNewJobs = chunk.filter(
+                ({ job }) =>
+                    !existingKeys.has(
+                        getJobKey(job.source, job.sourceJobId)
+                    )
+            ).length;
+            const chunkUpdatedJobs =
+                chunk.length - chunkNewJobs;
+
+            const skillsByJobKey = new Map(
+                chunk.map(({ job, skills }) => [
+                    getJobKey(job.source, job.sourceJobId),
+                    skills,
+                ])
+            );
+            await bulkSaveJobSkills(
+                client,
+                upsertResult.rows.map((row) => ({
+                    jobId: row.id,
+                    skills: skillsByJobKey.get(
+                        getJobKey(row.source, row.source_job_id)
+                    )!,
+                }))
+            );
+
+            await client.query("COMMIT");
+            newJobs += chunkNewJobs;
+            updatedJobs += chunkUpdatedJobs;
+        } catch (error) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (rollbackError) {
+                console.error(
+                    "Failed to roll back bulk job save transaction.",
+                    rollbackError
+                );
+                releaseError = rollbackError instanceof Error
+                    ? rollbackError
+                    : new Error(String(rollbackError));
+            }
+            throw error;
+        } finally {
+            client.release(releaseError);
+        }
+    }
+
+    return {
+        totalJobs: uniqueJobs.length,
+        newJobs,
+        updatedJobs,
+    };
+}
+
 
 /**
  * Mark jobs as closed if they were not
@@ -170,16 +378,96 @@ export async function markMissingJobsAsClosed(
     collectionStartedAt: Date
 ): Promise<number> {
 
-    const result = await pool.query(
-        `UPDATE jobs
-         SET closed_at = CURRENT_TIMESTAMP
+    const closureCandidates = await pool.query(
+        `SELECT
+            COUNT(*) AS candidate_count,
+            ($2::timestamptz AT TIME ZONE 'UTC') AS cutoff
+         FROM jobs
          WHERE company_id = $1
-         AND last_seen_at < $2
+         AND last_seen_at < ($2::timestamptz AT TIME ZONE 'UTC')
          AND closed_at IS NULL`,
         [
             companyId,
             collectionStartedAt,
         ]
+    );
+
+    console.log(
+        `[JOB CLOSURE DEBUG]\ncompanyId: ${companyId}\ncollectionStartedAt received: ${collectionStartedAt.toISOString()}\ncandidate jobs for closure: ${closureCandidates.rows[0].candidate_count}\ncutoff selected: ${new Date(closureCandidates.rows[0].cutoff).toISOString()}`
+    );
+
+    const jobTimestampStats = await pool.query(
+        `SELECT
+            COUNT(*) AS total,
+            MIN(last_seen_at) AS min_last_seen,
+            MAX(last_seen_at) AS max_last_seen,
+            MIN(closed_at) AS min_closed_at,
+            MAX(closed_at) AS max_closed_at
+         FROM jobs
+         WHERE company_id = $1`,
+        [companyId]
+    );
+
+    const preUpdateCandidateCount = await pool.query(
+        `SELECT COUNT(*) AS candidate_count
+         FROM jobs
+         WHERE company_id = $1
+         AND last_seen_at < ($2::timestamptz AT TIME ZONE 'UTC')
+         AND closed_at IS NULL`,
+        [
+            companyId,
+            collectionStartedAt,
+        ]
+    );
+
+    const databaseClocks = await pool.query(
+        `SELECT
+            CURRENT_TIMESTAMP AS current_timestamp,
+            clock_timestamp() AS clock_timestamp`
+    );
+
+    console.log(
+        `[JOB CLOSURE DEBUG]\nUPDATE cutoff: ${collectionStartedAt.toISOString()}\ncompanyId: ${companyId}\ncollectionStartedAt: ${collectionStartedAt.toISOString()}\ncurrent timestamp: ${new Date(databaseClocks.rows[0].current_timestamp).toISOString()}\nclock timestamp: ${new Date(databaseClocks.rows[0].clock_timestamp).toISOString()}`
+    );
+
+    console.log(
+        `[JOB CLOSURE DEBUG]\ncompanyId: ${companyId}\nlast_seen_at stats: ${JSON.stringify(jobTimestampStats.rows[0])}\npre-UPDATE candidate count: ${preUpdateCandidateCount.rows[0].candidate_count}`
+    );
+
+    const result = await pool.query(
+        `UPDATE jobs
+         SET closed_at = CURRENT_TIMESTAMP
+         WHERE company_id = $1
+         AND last_seen_at < ($2::timestamptz AT TIME ZONE 'UTC')
+         AND closed_at IS NULL`,
+        [
+            companyId,
+            collectionStartedAt,
+        ]
+    );
+
+    console.log(
+        `[JOB CLOSURE DEBUG]\nUPDATE rowCount: ${result.rowCount}\nUPDATE command: ${result.command}`
+    );
+
+    const postUpdateCounts = await pool.query(
+        `SELECT
+            COUNT(*) FILTER (WHERE closed_at IS NULL) AS active_jobs,
+            COUNT(*) FILTER (WHERE closed_at IS NOT NULL) AS closed_jobs,
+            COUNT(*) FILTER (
+                WHERE last_seen_at < ($2::timestamptz AT TIME ZONE 'UTC')
+                AND closed_at IS NULL
+            ) AS remaining_candidates
+         FROM jobs
+         WHERE company_id = $1`,
+        [
+            companyId,
+            collectionStartedAt,
+        ]
+    );
+
+    console.log(
+        `[JOB CLOSURE DEBUG]\nPost-UPDATE counts: ${JSON.stringify(postUpdateCounts.rows[0])}`
     );
 
     return result.rowCount ?? 0;

@@ -1,5 +1,6 @@
 import pool from "../config/db";
 import he = require("he");
+import type { PoolClient } from "pg";
 
 
 // ============================================================
@@ -292,10 +293,11 @@ export const findSkillGroups = (
 // ============================================================
 
 export async function extractJobSkills(
-    description: string
+    description: string,
+    preloadedSkills?: Skill[]
 ): Promise<ExtractedJobSkills> {
 
-    const skills = await getAllSkills();
+    const skills = preloadedSkills ?? await getAllSkills();
 
     const normalizedDescription =
         cleanJobDescription(description);
@@ -890,6 +892,102 @@ export async function saveJobSkills(
                 skill.requirementGroup ??
                     null,
             ]
+        );
+    }
+}
+
+export async function bulkSaveJobSkills(
+    client: PoolClient,
+    jobSkills: {
+        jobId: number;
+        skills: ExtractedJobSkills;
+    }[]
+): Promise<void> {
+    if (jobSkills.length === 0) {
+        return;
+    }
+
+    const jobIds = jobSkills.map(({ jobId }) => jobId);
+    await client.query(
+        `DELETE FROM job_skills
+         WHERE job_id = ANY($1::bigint[])`,
+        [jobIds]
+    );
+
+    const relationships = new Map<
+        string,
+        {
+            jobId: number;
+            skillId: number;
+            skillType: string;
+            requirementGroup: number | null;
+        }
+    >();
+
+    for (const { jobId, skills } of jobSkills) {
+        const requiredSkillIds = new Set<number>();
+
+        for (const skill of skills.required) {
+            requiredSkillIds.add(skill.id);
+            relationships.set(`${jobId}:${skill.id}`, {
+                jobId,
+                skillId: skill.id,
+                skillType: "REQUIRED",
+                requirementGroup: skill.requirementGroup ?? null,
+            });
+        }
+
+        for (const skill of skills.niceToHave) {
+            if (requiredSkillIds.has(skill.id)) {
+                continue;
+            }
+
+            relationships.set(`${jobId}:${skill.id}`, {
+                jobId,
+                skillId: skill.id,
+                skillType: "NICE_TO_HAVE",
+                requirementGroup: skill.requirementGroup ?? null,
+            });
+        }
+    }
+
+    const rows = [...relationships.values()];
+    const insertChunkSize = 500;
+
+    for (
+        let offset = 0;
+        offset < rows.length;
+        offset += insertChunkSize
+    ) {
+        const chunk = rows.slice(
+            offset,
+            offset + insertChunkSize
+        );
+        const values: unknown[] = [];
+        const valueRows = chunk.map((row, index) => {
+            const parameterIndex = index * 4;
+            values.push(
+                row.jobId,
+                row.skillId,
+                row.skillType,
+                row.requirementGroup
+            );
+            return `($${parameterIndex + 1}, $${parameterIndex + 2}, $${parameterIndex + 3}, $${parameterIndex + 4})`;
+        });
+
+        await client.query(
+            `INSERT INTO job_skills (
+                job_id,
+                skill_id,
+                skill_type,
+                requirement_group
+            )
+            VALUES ${valueRows.join(", ")}
+            ON CONFLICT (job_id, skill_id)
+            DO UPDATE SET
+                skill_type = EXCLUDED.skill_type,
+                requirement_group = EXCLUDED.requirement_group`,
+            values
         );
     }
 }

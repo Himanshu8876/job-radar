@@ -6,7 +6,8 @@
   "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
   "build": "tsc",
   "start": "node dist/server.js",
-  "daily-run": "node dist/scripts/dailyRun.js"
+  "daily-run": "npm run build && node dist/scripts/dailyRun.js",
+  "debug:openai": "node dist/scripts/debugOpenAI.js"
 },
   "keywords": [],
   "author": "",
