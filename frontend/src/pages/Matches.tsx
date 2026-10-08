@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+
 import api from "../api/client";
 import { useToast } from "../components/ToastProvider";
 import { useAuth } from "../context/AuthContext";
@@ -23,9 +24,15 @@ interface Match {
   experience_score: number;
 }
 
+interface ProfileCompletionError {
+  message: string;
+  missingFields: string[];
+}
+
 function Matches() {
   const { showToast } = useToast();
   const { user, loading: authLoading } = useAuth();
+
   const {
     job: matchGenerationJob,
     isGenerating,
@@ -35,12 +42,13 @@ function Matches() {
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
-  const [profileCompletionError, setProfileCompletionError] = useState<{
-    message: string;
-    missingFields: string[];
-  } | null>(null);
+
+  const [profileCompletionError, setProfileCompletionError] =
+    useState<ProfileCompletionError | null>(null);
+
   const [showGenerateConfirmation, setShowGenerateConfirmation] =
     useState(false);
+
   const [pendingApplicationMatch, setPendingApplicationMatch] =
     useState<Match | null>(null);
 
@@ -82,6 +90,22 @@ function Matches() {
       return;
     }
 
+    /*
+     * Profile completeness is validated by the backend.
+     *
+     * Required profile information:
+     * - Preferred roles
+     * - Preferred locations
+     * - Skills
+     * - Experience
+     *
+     * IMPORTANT:
+     * Experience = 0 is valid for freshers.
+     * The backend must distinguish between:
+     *   null / undefined / missing -> incomplete
+     *   0 -> valid
+     */
+
     setShowGenerateConfirmation(true);
   }
 
@@ -95,6 +119,7 @@ function Matches() {
 
     try {
       const job = await startMatchGeneration();
+
       showToast(
         job.status === "running"
           ? "Match generation is already running. You can keep browsing while it finishes."
@@ -106,25 +131,30 @@ function Matches() {
     } catch (error) {
       console.error("Failed to generate matches:", error);
 
-      const response = (error as {
-        response?: {
-          status?: number;
-          data?: {
-            code?: string;
-            message?: string;
-            missingFields?: string[];
+      const response = (
+        error as {
+          response?: {
+            status?: number;
+            data?: {
+              code?: string;
+              message?: string;
+              missingFields?: string[];
+            };
           };
-        };
-      }).response;
+        }
+      ).response;
 
       if (
         response?.status === 422 &&
         response.data?.code === "PROFILE_INCOMPLETE"
       ) {
+        const missingFields = response.data.missingFields || [];
+
         setProfileCompletionError({
-          message: response.data.message ||
+          message:
+            response.data.message ||
             "Complete your profile before generating matches.",
-          missingFields: response.data.missingFields || [],
+          missingFields,
         });
       } else {
         showToast(
@@ -155,6 +185,7 @@ function Matches() {
       setMatches((current) =>
         current.filter((match) => match.job_id !== selectedMatch.job_id)
       );
+
       showToast("Application marked as applied.", "success");
     } catch (error: any) {
       console.error("Failed to save application:", error);
@@ -163,6 +194,7 @@ function Matches() {
         setMatches((current) =>
           current.filter((match) => match.job_id !== selectedMatch.job_id)
         );
+
         showToast(
           "You have already marked this job as applied.",
           "error"
@@ -209,6 +241,7 @@ function Matches() {
           </div>
 
           {/* Generate Matches Button */}
+
           <button
             type="button"
             onClick={handleGenerateMatches}
@@ -220,17 +253,36 @@ function Matches() {
         </div>
       </div>
 
+      {/* ================================
+          PROFILE COMPLETION ERROR
+      ================================= */}
+
       {profileCompletionError && (
         <div
           role="alert"
           className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
         >
-          <p className="font-semibold">{profileCompletionError.message}</p>
+          <p className="font-semibold">
+            Complete your profile before generating matches.
+          </p>
+
+          <p className="mt-1 text-amber-900">
+            Add all required profile information to get personalized job
+            matches.
+          </p>
+
           {profileCompletionError.missingFields.length > 0 && (
-            <p className="mt-1">
-              Add: {profileCompletionError.missingFields.join(", ")}.
-            </p>
+            <div className="mt-3">
+              <p className="font-medium">Missing:</p>
+
+              <ul className="list-inside list-disc">
+                {profileCompletionError.missingFields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </div>
           )}
+
           <Link
             to="/profile"
             className="mt-3 inline-flex font-semibold underline underline-offset-2"
@@ -240,9 +292,15 @@ function Matches() {
         </div>
       )}
 
+      {/* ================================
+          MATCH GENERATION STATUS
+      ================================= */}
+
       {matchGenerationJob && (
         <div
-          role={matchGenerationJob.status === "failed" ? "alert" : "status"}
+          role={
+            matchGenerationJob.status === "failed" ? "alert" : "status"
+          }
           className={`mb-6 rounded-xl border px-4 py-3 text-sm ${
             matchGenerationJob.status === "failed"
               ? "border-red-200 bg-red-50 text-red-800"
@@ -253,16 +311,20 @@ function Matches() {
         >
           {matchGenerationJob.status === "queued" &&
             "Match generation is queued."}
+
           {matchGenerationJob.status === "running" &&
             "Match generation is running in the background."}
+
           {matchGenerationJob.status === "completed" &&
             "Match generation completed."}
-          {matchGenerationJob.status === "failed" &&
+
+          {matchGenerationJob.status === "failed" && (
             <>
               <p>
                 {matchGenerationJob.error ||
                   "Match generation failed. Please try again."}
               </p>
+
               {matchGenerationJob.missingFields &&
                 matchGenerationJob.missingFields.length > 0 && (
                   <Link
@@ -272,7 +334,8 @@ function Matches() {
                     Complete your profile
                   </Link>
                 )}
-            </>}
+            </>
+          )}
         </div>
       )}
 
@@ -463,6 +526,10 @@ function Matches() {
         </div>
       )}
 
+      {/* ================================
+          GENERATE MATCHES CONFIRMATION
+      ================================= */}
+
       {showGenerateConfirmation && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-gray-950/45 px-4 py-6 backdrop-blur-sm"
@@ -486,6 +553,7 @@ function Matches() {
             >
               Generate matches?
             </h2>
+
             <p
               id="generate-matches-confirmation-description"
               className="mt-2 text-sm leading-6 text-gray-600"
@@ -502,6 +570,7 @@ function Matches() {
               >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={handleConfirmGenerateMatches}
@@ -514,6 +583,9 @@ function Matches() {
         </div>
       )}
 
+      {/* ================================
+          APPLICATION CONFIRMATION
+      ================================= */}
 
       {pendingApplicationMatch && (
         <div
@@ -544,11 +616,12 @@ function Matches() {
                 >
                   Confirm application
                 </h2>
+
                 <p
                   id="match-application-confirmation-description"
                   className="mt-2 text-sm leading-6 text-gray-600"
                 >
-                  Have you applied for {" "}
+                  Have you applied for{" "}
                   <span className="font-semibold text-gray-900">
                     {pendingApplicationMatch.title}
                   </span>
@@ -565,6 +638,7 @@ function Matches() {
               >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={handleMarkAsApplied}

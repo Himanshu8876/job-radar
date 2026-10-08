@@ -22,7 +22,8 @@ export interface MatchGenerationJob {
 export type MissingMatchProfileField =
     | "Preferred roles"
     | "Preferred locations"
-    | "Skills";
+    | "Skills"
+    | "Experience";
 
 interface ClaimedMatchGenerationJob {
     id: string;
@@ -56,6 +57,7 @@ export async function getMissingMatchProfileFields(
         `SELECT
             up.preferred_roles,
             up.preferred_locations,
+            up.experience_years IS NOT NULL AS has_experience,
             EXISTS (
                 SELECT 1
                 FROM user_profile_skills ups
@@ -81,6 +83,10 @@ export async function getMissingMatchProfileFields(
 
     if (!hasNonEmptyValue(profile.preferred_locations)) {
         missingFields.push("Preferred locations");
+    }
+
+    if (!profile.has_experience) {
+        missingFields.push("Experience");
     }
 
     if (!profile.has_skills) {
