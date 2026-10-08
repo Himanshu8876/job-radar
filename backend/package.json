@@ -7,7 +7,8 @@
   "build": "tsc",
   "start": "node dist/server.js",
   "daily-run": "npm run build && node dist/scripts/dailyRun.js",
-  "debug:openai": "node dist/scripts/debugOpenAI.js"
+  "debug:openai": "node dist/scripts/debugOpenAI.js",
+  "sync-companies": "node dist/scripts/syncCompanies.js"
 },
   "keywords": [],
   "author": "",
