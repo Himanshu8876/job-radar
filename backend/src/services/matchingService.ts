@@ -1140,10 +1140,10 @@ async function generateAndSaveMatchBatch(
             experience_max
          FROM jobs
          WHERE closed_at IS NULL
-           AND ($1 IS NULL OR id > $1)
-           AND id <= $2
+           AND ($1::bigint IS NULL OR id > $1::bigint)
+           AND id <= $2::bigint
          ORDER BY id
-         LIMIT $3`,
+         LIMIT $3::integer`,
         [afterJobId, maxJobId, MATCHING_JOB_BATCH_SIZE]
     );
     const jobs = jobsResult.rows as MatchingJob[];
