@@ -988,6 +988,8 @@ interface MatchToSave {
     reason: string;
 }
 
+const MATCHING_JOB_BATCH_SIZE = 250;
+
 function calculateSkillScoreFromCounts(
     counts: SkillScoreCounts
 ): number {
@@ -1019,91 +1021,77 @@ async function saveJobMatchesInBatches(
     ensureOwnership?: (client?: PoolClient) => Promise<void>
 ): Promise<void> {
     const client = await pool.connect();
-    const writeStartedAt = Date.now();
 
     try {
         await client.query("BEGIN");
-
-        for (let start = 0; start < matches.length; start += 500) {
-            await ensureOwnership?.(client);
-            const batch = matches.slice(start, start + 500);
-            const values: unknown[] = [];
-            const rows = batch.map((match, index) => {
-                const offset = index * 10;
-                values.push(
-                    match.jobId,
-                    userProfileId,
-                    match.overallScore,
-                    match.skillScore,
-                    match.roleScore,
-                    match.experienceScore,
-                    match.locationScore,
-                    match.educationScore,
-                    match.seniorityScore,
-                    match.reason
-                );
-
-                return `(${Array.from(
-                    { length: 10 },
-                    (_, valueIndex) => `$${offset + valueIndex + 1}`
-                ).join(", ")})`;
-            });
-
-            await client.query(
-                `INSERT INTO job_matches (
-                    job_id,
-                    user_profile_id,
-                    score,
-                    skill_score,
-                    role_score,
-                    experience_score,
-                    location_score,
-                    education_score,
-                    seniority_score,
-                    reason
-                )
-                VALUES ${rows.join(", ")}
-                ON CONFLICT (job_id, user_profile_id)
-                DO UPDATE SET
-                    score = EXCLUDED.score,
-                    skill_score = EXCLUDED.skill_score,
-                    role_score = EXCLUDED.role_score,
-                    experience_score = EXCLUDED.experience_score,
-                    location_score = EXCLUDED.location_score,
-                    education_score = EXCLUDED.education_score,
-                    seniority_score = EXCLUDED.seniority_score,
-                    reason = EXCLUDED.reason
-                WHERE (
-                    job_matches.score,
-                    job_matches.skill_score,
-                    job_matches.role_score,
-                    job_matches.experience_score,
-                    job_matches.location_score,
-                    job_matches.education_score,
-                    job_matches.seniority_score,
-                    job_matches.reason
-                ) IS DISTINCT FROM (
-                    EXCLUDED.score,
-                    EXCLUDED.skill_score,
-                    EXCLUDED.role_score,
-                    EXCLUDED.experience_score,
-                    EXCLUDED.location_score,
-                    EXCLUDED.education_score,
-                    EXCLUDED.seniority_score,
-                    EXCLUDED.reason
-                )`,
-                values
+        await ensureOwnership?.(client);
+        const values: unknown[] = [];
+        const rows = matches.map((match, index) => {
+            const offset = index * 10;
+            values.push(
+                match.jobId,
+                userProfileId,
+                match.overallScore,
+                match.skillScore,
+                match.roleScore,
+                match.experienceScore,
+                match.locationScore,
+                match.educationScore,
+                match.seniorityScore,
+                match.reason
             );
 
-            const savedJobs = start + batch.length;
-            if (savedJobs % 5_000 === 0 || savedJobs === matches.length) {
-                console.info(
-                    `Match generation write progress for profile ${userProfileId}: ` +
-                    `${savedJobs}/${matches.length} jobs in ` +
-                    `${((Date.now() - writeStartedAt) / 1000).toFixed(1)}s`
-                );
-            }
-        }
+            return `(${Array.from(
+                { length: 10 },
+                (_, valueIndex) => `$${offset + valueIndex + 1}`
+            ).join(", ")})`;
+        });
+
+        await client.query(
+            `INSERT INTO job_matches (
+                job_id,
+                user_profile_id,
+                score,
+                skill_score,
+                role_score,
+                experience_score,
+                location_score,
+                education_score,
+                seniority_score,
+                reason
+            )
+            VALUES ${rows.join(", ")}
+            ON CONFLICT (job_id, user_profile_id)
+            DO UPDATE SET
+                score = EXCLUDED.score,
+                skill_score = EXCLUDED.skill_score,
+                role_score = EXCLUDED.role_score,
+                experience_score = EXCLUDED.experience_score,
+                location_score = EXCLUDED.location_score,
+                education_score = EXCLUDED.education_score,
+                seniority_score = EXCLUDED.seniority_score,
+                reason = EXCLUDED.reason
+            WHERE (
+                job_matches.score,
+                job_matches.skill_score,
+                job_matches.role_score,
+                job_matches.experience_score,
+                job_matches.location_score,
+                job_matches.education_score,
+                job_matches.seniority_score,
+                job_matches.reason
+            ) IS DISTINCT FROM (
+                EXCLUDED.score,
+                EXCLUDED.skill_score,
+                EXCLUDED.role_score,
+                EXCLUDED.experience_score,
+                EXCLUDED.location_score,
+                EXCLUDED.education_score,
+                EXCLUDED.seniority_score,
+                EXCLUDED.reason
+            )`,
+            values
+        );
 
         await client.query("COMMIT");
     } catch (error) {
@@ -1112,6 +1100,179 @@ async function saveJobMatchesInBatches(
     } finally {
         client.release();
     }
+}
+
+function logMatchingMemory(
+    userProfileId: number,
+    batchNumber: number,
+    processedJobs: number
+): void {
+    const { rss, heapUsed, heapTotal } = process.memoryUsage();
+    const toMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+    console.info(
+        `Match generation batch ${batchNumber} for profile ${userProfileId}: ` +
+        `${processedJobs} jobs processed; memory rss=${toMb(rss)}MB, ` +
+        `heap=${toMb(heapUsed)}/${toMb(heapTotal)}MB`
+    );
+}
+
+async function generateAndSaveMatchBatch(
+    userProfileId: number,
+    profile: Awaited<ReturnType<typeof getUserProfileForMatching>>,
+    afterJobId: number | null,
+    maxJobId: number,
+    ensureOwnership?: (client?: PoolClient) => Promise<void>
+): Promise<{
+    processedJobs: number;
+    lastJobId: number;
+    timings: { jobsMs: number; skillsMs: number; scoringMs: number; writeMs: number };
+} | null> {
+    const jobsStartedAt = Date.now();
+    const jobsResult = await pool.query(
+        `SELECT
+            id,
+            title,
+            description,
+            location,
+            country,
+            workplace_type,
+            experience_min,
+            experience_max
+         FROM jobs
+         WHERE closed_at IS NULL
+           AND ($1 IS NULL OR id > $1)
+           AND id <= $2
+         ORDER BY id
+         LIMIT $3`,
+        [afterJobId, maxJobId, MATCHING_JOB_BATCH_SIZE]
+    );
+    const jobs = jobsResult.rows as MatchingJob[];
+    const jobsMs = Date.now() - jobsStartedAt;
+
+    if (jobs.length === 0) {
+        return null;
+    }
+
+    await ensureOwnership?.();
+    const jobIds = jobs.map((job) => Number(job.id));
+    const skillsStartedAt = Date.now();
+    const skillResult = await pool.query(
+        `SELECT
+            js.job_id,
+            js.skill_type,
+            COUNT(*) AS total_skills,
+            COUNT(ups.skill_id) AS matched_skills
+         FROM jobs j
+         INNER JOIN job_skills js
+            ON js.job_id = j.id
+         LEFT JOIN user_profile_skills ups
+            ON ups.skill_id = js.skill_id
+            AND ups.user_profile_id = $1
+         WHERE j.closed_at IS NULL
+           AND js.job_id = ANY($2::int[])
+         GROUP BY js.job_id, js.skill_type`,
+        [userProfileId, jobIds]
+    );
+    const skillsMs = Date.now() - skillsStartedAt;
+
+    const skillCounts = new Map<number, SkillScoreCounts>();
+    for (const row of skillResult.rows) {
+        const jobId = Number(row.job_id);
+        const counts = skillCounts.get(jobId) || {
+            totalRequiredSkills: 0,
+            matchedRequiredSkills: 0,
+            totalNiceToHaveSkills: 0,
+            matchedNiceToHaveSkills: 0,
+        };
+
+        if (row.skill_type === "REQUIRED") {
+            counts.totalRequiredSkills = Number(row.total_skills);
+            counts.matchedRequiredSkills = Number(row.matched_skills);
+        } else if (row.skill_type === "NICE_TO_HAVE") {
+            counts.totalNiceToHaveSkills = Number(row.total_skills);
+            counts.matchedNiceToHaveSkills = Number(row.matched_skills);
+        }
+
+        skillCounts.set(jobId, counts);
+    }
+
+    const scoringStartedAt = Date.now();
+    const matches: MatchToSave[] = [];
+
+    for (const job of jobs) {
+        const skillScore = calculateSkillScoreFromCounts(
+            skillCounts.get(Number(job.id)) || {
+                totalRequiredSkills: 0,
+                matchedRequiredSkills: 0,
+                totalNiceToHaveSkills: 0,
+                matchedNiceToHaveSkills: 0,
+            }
+        );
+        const experienceScore = calculateExperienceScore(
+            Number(profile.experience_years),
+            job.experience_min !== null && job.experience_min !== undefined
+                ? Number(job.experience_min)
+                : undefined,
+            job.experience_max !== null && job.experience_max !== undefined
+                ? Number(job.experience_max)
+                : undefined
+        );
+        const seniorityScore = calculateSeniorityScore(
+            getJobSeniority(job.title)
+        );
+        const locationScore = calculateLocationScore(
+            profile.preferred_locations,
+            job.location,
+            job.country,
+            job.workplace_type
+        );
+        const roleScore = calculateRoleScore(
+            profile.preferred_roles,
+            job.title
+        );
+        const educationScore = calculateEducationScore(
+            profile.degree,
+            job.description
+        );
+        const reason = generateMatchReason(
+            skillScore,
+            roleScore,
+            experienceScore,
+            seniorityScore,
+            locationScore,
+            educationScore
+        );
+
+        matches.push({
+            jobId: Number(job.id),
+            skillScore,
+            roleScore,
+            experienceScore,
+            locationScore,
+            educationScore,
+            seniorityScore,
+            overallScore: calculateOverallScore(
+                skillScore,
+                roleScore,
+                experienceScore,
+                seniorityScore,
+                locationScore,
+                educationScore
+            ),
+            reason,
+        });
+    }
+    const scoringMs = Date.now() - scoringStartedAt;
+
+    const writeStartedAt = Date.now();
+    await saveJobMatchesInBatches(matches, userProfileId, ensureOwnership);
+    const writeMs = Date.now() - writeStartedAt;
+
+    return {
+        processedJobs: matches.length,
+        lastJobId: jobIds[jobIds.length - 1],
+        timings: { jobsMs, skillsMs, scoringMs, writeMs },
+    };
 }
 
 export async function generateMatchesForUser(
@@ -1129,165 +1290,68 @@ export async function generateMatchesForUser(
         const profile = await getUserProfileForMatching(userProfileId);
         const profileDurationMs = Date.now() - profileStartedAt;
 
-        stage = "jobs";
-        const jobsStartedAt = Date.now();
-        const jobsResult = await pool.query(
-            `SELECT
-                id,
-                title,
-                description,
-                location,
-                country,
-                workplace_type,
-                experience_min,
-                experience_max
+        stage = "job range";
+        const jobRangeStartedAt = Date.now();
+        const maxJobResult = await pool.query<{ max_job_id: number | null }>(
+            `SELECT MAX(id) AS max_job_id
              FROM jobs
-             WHERE closed_at IS NULL
-             ORDER BY id`
+             WHERE closed_at IS NULL`
         );
-        const jobs = jobsResult.rows as MatchingJob[];
-        const jobsDurationMs = Date.now() - jobsStartedAt;
+        const maxJobId = maxJobResult.rows[0].max_job_id === null
+            ? null
+            : Number(maxJobResult.rows[0].max_job_id);
+        const jobRangeMs = Date.now() - jobRangeStartedAt;
 
-        if (jobs.length === 0) {
+        if (maxJobId === null) {
             console.info(
-                `Match generation completed for profile ${userProfileId}: ` +
-                `0 jobs; profile=${profileDurationMs}ms, jobs=${jobsDurationMs}ms, ` +
+                `Match generation completed for profile ${userProfileId}: 0 jobs; ` +
+                `profile=${profileDurationMs}ms, jobRange=${jobRangeMs}ms, ` +
                 `total=${Date.now() - startedAt}ms`
             );
             return { processedJobs: 0 };
         }
 
-        stage = "skills";
-        await ensureOwnership?.();
-        const skillsStartedAt = Date.now();
-        const skillResult = await pool.query(
-            `SELECT
-                js.job_id,
-                js.skill_type,
-                COUNT(*) AS total_skills,
-                COUNT(ups.skill_id) AS matched_skills
-             FROM jobs j
-             INNER JOIN job_skills js
-                ON js.job_id = j.id
-             LEFT JOIN user_profile_skills ups
-                ON ups.skill_id = js.skill_id
-                AND ups.user_profile_id = $1
-             WHERE j.closed_at IS NULL
-             GROUP BY js.job_id, js.skill_type`,
-            [userProfileId]
-        );
-        const skillsDurationMs = Date.now() - skillsStartedAt;
+        let processedJobs = 0;
+        let lastJobId: number | null = null;
+        let batchNumber = 0;
 
-        const skillCounts = new Map<number, SkillScoreCounts>();
-        for (const row of skillResult.rows) {
-            const jobId = Number(row.job_id);
-            const counts = skillCounts.get(jobId) || {
-                totalRequiredSkills: 0,
-                matchedRequiredSkills: 0,
-                totalNiceToHaveSkills: 0,
-                matchedNiceToHaveSkills: 0,
-            };
+        while (lastJobId === null || lastJobId < maxJobId) {
+            stage = `batch ${batchNumber + 1}`;
+            await ensureOwnership?.();
+            const batch = await generateAndSaveMatchBatch(
+                userProfileId,
+                profile,
+                lastJobId,
+                maxJobId,
+                ensureOwnership
+            );
 
-            if (row.skill_type === "REQUIRED") {
-                counts.totalRequiredSkills = Number(row.total_skills);
-                counts.matchedRequiredSkills = Number(row.matched_skills);
-            } else if (row.skill_type === "NICE_TO_HAVE") {
-                counts.totalNiceToHaveSkills = Number(row.total_skills);
-                counts.matchedNiceToHaveSkills = Number(row.matched_skills);
+            if (!batch) {
+                break;
             }
 
-            skillCounts.set(jobId, counts);
+            batchNumber += 1;
+            processedJobs += batch.processedJobs;
+            lastJobId = batch.lastJobId;
+            console.info(
+                `Match generation batch ${batchNumber} completed for profile ${userProfileId}: ` +
+                `${batch.processedJobs} jobs; total=${processedJobs}; ` +
+                `jobs=${batch.timings.jobsMs}ms, skills=${batch.timings.skillsMs}ms, ` +
+                `scoring=${batch.timings.scoringMs}ms, write=${batch.timings.writeMs}ms`
+            );
+            logMatchingMemory(userProfileId, batchNumber, processedJobs);
         }
 
-        stage = "scoring";
-        const scoringStartedAt = Date.now();
-        const matches: MatchToSave[] = [];
-
-        for (const [index, job] of jobs.entries()) {
-            if (index % 1_000 === 0) {
-                await ensureOwnership?.();
-            }
-
-            const skillScore = calculateSkillScoreFromCounts(
-                skillCounts.get(Number(job.id)) || {
-                    totalRequiredSkills: 0,
-                    matchedRequiredSkills: 0,
-                    totalNiceToHaveSkills: 0,
-                    matchedNiceToHaveSkills: 0,
-                }
-            );
-
-            const experienceScore = calculateExperienceScore(
-                Number(profile.experience_years),
-                job.experience_min !== null && job.experience_min !== undefined
-                    ? Number(job.experience_min)
-                    : undefined,
-                job.experience_max !== null && job.experience_max !== undefined
-                    ? Number(job.experience_max)
-                    : undefined
-            );
-            const seniorityScore = calculateSeniorityScore(
-                getJobSeniority(job.title)
-            );
-            const locationScore = calculateLocationScore(
-                profile.preferred_locations,
-                job.location,
-                job.country,
-                job.workplace_type
-            );
-            const roleScore = calculateRoleScore(
-                profile.preferred_roles,
-                job.title
-            );
-            const educationScore = calculateEducationScore(
-                profile.degree,
-                job.description
-            );
-            const reason = generateMatchReason(
-                skillScore,
-                roleScore,
-                experienceScore,
-                seniorityScore,
-                locationScore,
-                educationScore
-            );
-
-            matches.push({
-                jobId: Number(job.id),
-                skillScore,
-                roleScore,
-                experienceScore,
-                locationScore,
-                educationScore,
-                seniorityScore,
-                overallScore: calculateOverallScore(
-                    skillScore,
-                    roleScore,
-                    experienceScore,
-                    seniorityScore,
-                    locationScore,
-                    educationScore
-                ),
-                reason,
-            });
-        }
-        const scoringDurationMs = Date.now() - scoringStartedAt;
-
-        stage = "writes";
-        const writesStartedAt = Date.now();
-        await saveJobMatchesInBatches(matches, userProfileId, ensureOwnership);
-        const writesDurationMs = Date.now() - writesStartedAt;
         const totalDurationMs = Date.now() - startedAt;
 
         console.info(
             `Match generation completed for profile ${userProfileId}: ` +
-            `${matches.length} jobs; profile=${profileDurationMs}ms, ` +
-            `jobs=${jobsDurationMs}ms, skills=${skillsDurationMs}ms, ` +
-            `scoring=${scoringDurationMs}ms, writes=${writesDurationMs}ms, ` +
+            `${processedJobs} jobs in ${batchNumber} batches; ` +
+            `profile=${profileDurationMs}ms, jobRange=${jobRangeMs}ms, ` +
             `total=${totalDurationMs}ms`
         );
 
-        return { processedJobs: matches.length };
+        return { processedJobs };
     } catch (error) {
         console.error(
             `Match generation failed for profile ${userProfileId} during ${stage} ` +
