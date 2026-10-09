@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { PoolClient } from "pg";
 import pool from "../config/db";
 import { generateMatchesForUser } from "./matchingService";
 
@@ -28,6 +29,7 @@ export type MissingMatchProfileField =
 interface ClaimedMatchGenerationJob {
     id: string;
     user_profile_id: number;
+    worker_token: string;
 }
 
 const WORKER_POLL_INTERVAL_MS = 2_000;
@@ -100,6 +102,7 @@ export async function recoverStaleMatchGenerationJobs(): Promise<number> {
     const result = await pool.query(
         `UPDATE match_generation_jobs
          SET status = 'queued',
+             worker_token = NULL,
              started_at = NULL,
              error_message = NULL,
              updated_at = CURRENT_TIMESTAMP
@@ -107,7 +110,14 @@ export async function recoverStaleMatchGenerationJobs(): Promise<number> {
            AND updated_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'`
     );
 
-    return result.rowCount ?? 0;
+    const recoveredCount = result.rowCount ?? 0;
+    if (recoveredCount > 0) {
+        console.warn(
+            `Requeued ${recoveredCount} stale match-generation job(s)`
+        );
+    }
+
+    return recoveredCount;
 }
 
 export async function createOrGetActiveMatchGenerationJob(
@@ -167,47 +177,150 @@ export async function getMatchGenerationJob(
 }
 
 async function executeClaimedJob(
-    job: ClaimedMatchGenerationJob
+    job: ClaimedMatchGenerationJob,
+    onLeaseLost?: () => void
 ): Promise<void> {
-    const heartbeat = setInterval(() => {
-        void pool.query(
-            `UPDATE match_generation_jobs
-             SET updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1 AND status = 'running'`,
-            [job.id]
-        ).catch((error) => {
-            console.error(
-                `Match-generation heartbeat failed for job ${job.id}:`,
-                error
+    const startedAt = Date.now();
+    console.info(
+        `Match-generation job ${job.id} started for profile ${job.user_profile_id}`
+    );
+    let stopped = false;
+    let heartbeatTimer: NodeJS.Timeout | undefined;
+    let ownershipError: Error | null = null;
+    let ownershipLossNotified = false;
+
+    const recordLeaseLoss = (): void => {
+        if (!ownershipError) {
+            ownershipError = new Error(
+                `Match-generation job ${job.id} lease was lost`
             );
-        });
-    }, JOB_HEARTBEAT_INTERVAL_MS);
+            console.error(ownershipError.message);
+        }
+
+        if (!ownershipLossNotified) {
+            ownershipLossNotified = true;
+            onLeaseLost?.();
+        }
+    };
+
+    const renewLease = async (client?: PoolClient): Promise<void> => {
+        try {
+            const queryable = client ?? pool;
+            const result = await queryable.query(
+                `UPDATE match_generation_jobs
+                 SET updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1
+                   AND status = 'running'
+                   AND worker_token = $2
+                 RETURNING id`,
+                [job.id, job.worker_token]
+            );
+
+            if (result.rowCount === 0 && !stopped) {
+                recordLeaseLoss();
+            }
+        } catch (error) {
+            if (!stopped) {
+                ownershipError = error instanceof Error
+                    ? error
+                    : new Error(String(error));
+                console.error(
+                    `Match-generation heartbeat failed for job ${job.id}:`,
+                    error
+                );
+            }
+        }
+    };
+
+    const scheduleHeartbeat = (): void => {
+        heartbeatTimer = setTimeout(() => {
+            void renewLease().finally(() => {
+                if (!stopped) {
+                    scheduleHeartbeat();
+                }
+            });
+        }, JOB_HEARTBEAT_INTERVAL_MS);
+    };
+
+    const stopHeartbeat = (): void => {
+        stopped = true;
+        if (heartbeatTimer) {
+            clearTimeout(heartbeatTimer);
+        }
+    };
+
+    const ensureOwnership = async (client?: PoolClient): Promise<void> => {
+        if (ownershipError) {
+            throw ownershipError;
+        }
+
+        await renewLease(client);
+        if (ownershipError) {
+            throw ownershipError;
+        }
+    };
+
+    scheduleHeartbeat();
 
     try {
-        await generateMatchesForUser(Number(job.user_profile_id));
+        await generateMatchesForUser(
+            Number(job.user_profile_id),
+            ensureOwnership
+        );
+        await ensureOwnership();
+        stopHeartbeat();
 
-        await pool.query(
+        const result = await pool.query(
             `UPDATE match_generation_jobs
              SET status = 'completed',
+                 worker_token = NULL,
                  error_message = NULL,
                  completed_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $1 AND status = 'running'`,
-            [job.id]
+             WHERE id = $1
+               AND status = 'running'
+               AND worker_token = $2
+             RETURNING id`,
+            [job.id, job.worker_token]
         );
+        if (result.rowCount === 0) {
+            recordLeaseLoss();
+            console.warn(
+                `Match-generation job ${job.id} completion skipped because its lease was lost`
+            );
+        } else {
+            console.info(
+                `Match-generation job ${job.id} completed for profile ` +
+                `${job.user_profile_id} in ${Date.now() - startedAt}ms`
+            );
+        }
     } catch (error) {
-        console.error(`Match-generation job ${job.id} failed:`, error);
+        stopHeartbeat();
+        console.error(
+            `Match-generation job ${job.id} for profile ${job.user_profile_id} ` +
+            `failed after ${Date.now() - startedAt}ms:`,
+            error
+        );
 
         try {
-            await pool.query(
+            const result = await pool.query(
                 `UPDATE match_generation_jobs
                  SET status = 'failed',
+                     worker_token = NULL,
                      error_message = 'Match generation failed. Please try again.',
                      completed_at = CURRENT_TIMESTAMP,
                      updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1 AND status = 'running'`,
-                [job.id]
+                 WHERE id = $1
+                   AND status = 'running'
+                   AND worker_token = $2
+                 RETURNING id`,
+                [job.id, job.worker_token]
             );
+            if (result.rowCount === 0) {
+                console.warn(
+                    `Match-generation job ${job.id} failure status skipped because its lease was lost`
+                );
+            }
         } catch (statusError) {
             console.error(
                 `Could not mark match-generation job ${job.id} as failed:`,
@@ -215,7 +328,7 @@ async function executeClaimedJob(
             );
         }
     } finally {
-        clearInterval(heartbeat);
+        stopHeartbeat();
     }
 }
 
@@ -225,13 +338,14 @@ export async function processMatchGenerationJob(
     const result = await pool.query<ClaimedMatchGenerationJob>(
         `UPDATE match_generation_jobs
          SET status = 'running',
+             worker_token = $2,
              started_at = CURRENT_TIMESTAMP,
              completed_at = NULL,
              error_message = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status = 'queued'
-         RETURNING id, user_profile_id`,
-        [jobId]
+         RETURNING id, user_profile_id, worker_token`,
+        [jobId, randomUUID()]
     );
 
     const claimedJob = result.rows[0];
@@ -256,6 +370,7 @@ async function claimNextQueuedJob(): Promise<ClaimedMatchGenerationJob | null> {
          )
          UPDATE match_generation_jobs AS job
          SET status = 'running',
+             worker_token = $1,
              started_at = CURRENT_TIMESTAMP,
              completed_at = NULL,
              error_message = NULL,
@@ -263,13 +378,15 @@ async function claimNextQueuedJob(): Promise<ClaimedMatchGenerationJob | null> {
          FROM next_job
          WHERE job.id = next_job.id
            AND job.status = 'queued'
-         RETURNING job.id, job.user_profile_id`
+         RETURNING job.id, job.user_profile_id, job.worker_token`,
+        [randomUUID()]
     );
 
     return result.rows[0] ?? null;
 }
 
 let workerStarted = false;
+let activeWorkerToken: string | null = null;
 
 export function startMatchGenerationJobWorker(): void {
     if (workerStarted) {
@@ -281,12 +398,28 @@ export function startMatchGenerationJobWorker(): void {
     const runWorkerCycle = async (): Promise<void> => {
         try {
             await recoverStaleMatchGenerationJobs();
-            const job = await claimNextQueuedJob();
 
-            if (job) {
-                await executeClaimedJob(job);
-                setImmediate(() => void runWorkerCycle());
-                return;
+            if (activeWorkerToken === null) {
+                const job = await claimNextQueuedJob();
+                if (job) {
+                    activeWorkerToken = job.worker_token;
+                    void executeClaimedJob(job, () => {
+                        if (activeWorkerToken === job.worker_token) {
+                            activeWorkerToken = null;
+                        }
+                    })
+                        .catch((error) => {
+                            console.error(
+                                `Unexpected match-generation worker error for job ${job.id}:`,
+                                error
+                            );
+                        })
+                        .finally(() => {
+                            if (activeWorkerToken === job.worker_token) {
+                                activeWorkerToken = null;
+                            }
+                        });
+                }
             }
         } catch (error) {
             console.error("Match-generation worker cycle failed:", error);
