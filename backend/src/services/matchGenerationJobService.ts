@@ -335,6 +335,22 @@ async function executeClaimedJob(
 export async function processMatchGenerationJob(
     jobId: string
 ): Promise<boolean> {
+    if (matchGenerationWorker?.stopping) {
+        return false;
+    }
+
+    const processingTask = claimAndProcessMatchGenerationJob(jobId);
+    activeProcessTasks.add(processingTask);
+    void processingTask.then(
+        () => activeProcessTasks.delete(processingTask),
+        () => activeProcessTasks.delete(processingTask)
+    );
+    return processingTask;
+}
+
+async function claimAndProcessMatchGenerationJob(
+    jobId: string
+): Promise<boolean> {
     const result = await pool.query<ClaimedMatchGenerationJob>(
         `UPDATE match_generation_jobs
          SET status = 'running',
@@ -354,7 +370,7 @@ export async function processMatchGenerationJob(
         return false;
     }
 
-    await executeClaimedJob(claimedJob);
+    await trackClaimedJob(claimedJob);
     return true;
 }
 
@@ -385,51 +401,149 @@ async function claimNextQueuedJob(): Promise<ClaimedMatchGenerationJob | null> {
     return result.rows[0] ?? null;
 }
 
-let workerStarted = false;
-let activeWorkerToken: string | null = null;
+interface MatchGenerationWorker {
+    stopping: boolean;
+    timer: NodeJS.Timeout | null;
+    cyclePromise: Promise<void> | null;
+    activeJobPromise: Promise<void> | null;
+    stopPromise: Promise<void> | null;
+    stop: () => Promise<void>;
+}
 
-export function startMatchGenerationJobWorker(): void {
-    if (workerStarted) {
+let matchGenerationWorker: MatchGenerationWorker | null = null;
+let activeWorkerToken: string | null = null;
+const activeJobRuns = new Set<Promise<void>>();
+const activeProcessTasks = new Set<Promise<boolean>>();
+
+function trackClaimedJob(
+    job: ClaimedMatchGenerationJob,
+    onLeaseLost?: () => void
+): Promise<void> {
+    const run = executeClaimedJob(job, onLeaseLost);
+    activeJobRuns.add(run);
+    void run.then(
+        () => activeJobRuns.delete(run),
+        () => activeJobRuns.delete(run)
+    );
+    return run;
+}
+
+async function waitForActiveMatchGenerationWork(): Promise<void> {
+    while (activeProcessTasks.size > 0 || activeJobRuns.size > 0) {
+        await Promise.allSettled([
+            ...activeProcessTasks,
+            ...activeJobRuns,
+        ]);
+    }
+}
+
+async function runMatchGenerationWorkerCycle(
+    worker: MatchGenerationWorker
+): Promise<void> {
+    if (worker.stopping) {
         return;
     }
 
-    workerStarted = true;
-
-    const runWorkerCycle = async (): Promise<void> => {
+    const cycle = (async (): Promise<void> => {
         try {
             await recoverStaleMatchGenerationJobs();
 
-            if (activeWorkerToken === null) {
+            if (!worker.stopping && activeWorkerToken === null) {
                 const job = await claimNextQueuedJob();
                 if (job) {
                     activeWorkerToken = job.worker_token;
-                    void executeClaimedJob(job, () => {
+                    const jobRun = trackClaimedJob(job, () => {
                         if (activeWorkerToken === job.worker_token) {
                             activeWorkerToken = null;
                         }
-                    })
-                        .catch((error) => {
+                    });
+                    worker.activeJobPromise = jobRun;
+                    void jobRun.then(
+                        () => {
+                            if (worker.activeJobPromise === jobRun) {
+                                worker.activeJobPromise = null;
+                            }
+                            if (activeWorkerToken === job.worker_token) {
+                                activeWorkerToken = null;
+                            }
+                        },
+                        (error) => {
                             console.error(
                                 `Unexpected match-generation worker error for job ${job.id}:`,
                                 error
                             );
-                        })
-                        .finally(() => {
+                            if (worker.activeJobPromise === jobRun) {
+                                worker.activeJobPromise = null;
+                            }
                             if (activeWorkerToken === job.worker_token) {
                                 activeWorkerToken = null;
                             }
-                        });
+                        }
+                    );
                 }
             }
         } catch (error) {
             console.error("Match-generation worker cycle failed:", error);
+        } finally {
+            if (!worker.stopping) {
+                worker.timer = setTimeout(() => {
+                    worker.timer = null;
+                    void runMatchGenerationWorkerCycle(worker);
+                }, WORKER_POLL_INTERVAL_MS);
+            }
+        }
+    })();
+    worker.cyclePromise = cycle;
+    await cycle;
+}
+
+export function startMatchGenerationJobWorker(): () => Promise<void> {
+    if (matchGenerationWorker) {
+        if (matchGenerationWorker.stopping) {
+            throw new Error(
+                "Match-generation worker is stopping; wait for shutdown before restarting it"
+            );
+        }
+        return matchGenerationWorker.stop;
+    }
+
+    let worker: MatchGenerationWorker;
+    const stop = (): Promise<void> => {
+        if (worker.stopPromise) {
+            return worker.stopPromise;
         }
 
-        setTimeout(
-            () => void runWorkerCycle(),
-            WORKER_POLL_INTERVAL_MS
-        );
+        worker.stopping = true;
+        if (worker.timer) {
+            clearTimeout(worker.timer);
+            worker.timer = null;
+        }
+
+        worker.stopPromise = (async () => {
+            if (worker.cyclePromise) {
+                await worker.cyclePromise;
+            }
+            if (worker.activeJobPromise) {
+                await worker.activeJobPromise;
+            }
+            await waitForActiveMatchGenerationWork();
+            if (matchGenerationWorker === worker) {
+                matchGenerationWorker = null;
+            }
+            console.info("Match-generation worker stopped cleanly");
+        })();
+        return worker.stopPromise;
     };
 
-    void runWorkerCycle();
+    worker = {
+        stopping: false,
+        timer: null,
+        cyclePromise: null,
+        activeJobPromise: null,
+        stopPromise: null,
+        stop,
+    };
+    matchGenerationWorker = worker;
+    void runMatchGenerationWorkerCycle(worker);
+    return stop;
 }
