@@ -2,6 +2,7 @@ import { JobCollector } from "./jobCollector";
 import GreenhouseCollector from "./greenhouse/greenhouseCollector";
 import LeverCollector from "./lever/leverCollector";
 import AshbyCollector from "./ashbyCollector";
+import WorkdayCollector from "./workdayCollector";
 
 export function createCollector(
     atsType: string,
@@ -22,6 +23,9 @@ export function createCollector(
             return new AshbyCollector(
                 atsIdentifier
             );
+        
+        case "workday":
+        return new WorkdayCollector(atsIdentifier);
 
         default:
             throw new Error(
